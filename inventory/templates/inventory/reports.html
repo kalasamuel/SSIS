@@ -1,0 +1,43 @@
+<html>
+<head>
+  <title>Reports</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <h3>Sales by Year (bar)</h3>
+  <canvas id="yearlyChart"></canvas>
+
+  <h3>Sales by Category (pie)</h3>
+  <canvas id="categoryChart"></canvas>
+
+  <script>
+    async function draw() {
+      const yResp = await fetch("{% url 'sales_by_year_api' %}");
+      const yJson = await yResp.json();
+      const cResp = await fetch("{% url 'sales_by_category_api' %}");
+      const cJson = await cResp.json();
+
+      const ctxY = document.getElementById('yearlyChart').getContext('2d');
+      new Chart(ctxY, {
+        type: 'bar',
+        data: {
+          labels: yJson.labels,
+          datasets: [{ label: 'Total sales', data: yJson.data }]
+        },
+        options: { responsive: true }
+      });
+
+      const ctxC = document.getElementById('categoryChart').getContext('2d');
+      new Chart(ctxC, {
+        type: 'pie',
+        data: {
+          labels: cJson.labels,
+          datasets: [{ data: cJson.data }]
+        },
+        options: { responsive: true }
+      });
+    }
+    draw();
+  </script>
+</body>
+</html>
