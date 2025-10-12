@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Monthly Sales Report</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: 'Poppins', sans-serif; margin: 40px; }
+    h2 { color: #2ECC71; text-align: center; }
+    table {
+      width: 50%; margin: 20px auto; border-collapse: collapse;
+      border: 1px solid #ccc;
+    }
+    th, td { padding: 10px; border: 1px solid #ccc; text-align: center; }
+    canvas { display: block; margin: 40px auto; max-width: 700px; }
+  </style>
+</head>
+<body>
+  <h2>Monthly Sales Summary Report</h2>
+
+  <!-- Table Section -->
+  <table>
+    <thead>
+      <tr><th>Month</th><th>Total Sales (UGX)</th></tr>
+    </thead>
+    <tbody>
+      {% for sale in sales_data %}
+      <tr>
+        <td>{{ sale.month|date:"F Y" }}</td>
+        <td>{{ sale.total_sales|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Bar Chart -->
+  <canvas id="salesBarChart"></canvas>
+
+  <!-- Pie Chart -->
+  <canvas id="salesPieChart"></canvas>
+
+  <script>
+    const months = {{ months|safe }};
+    const totals = {{ totals|safe }};
+
+    // Bar Chart
+    new Chart(document.getElementById('salesBarChart'), {
+      type: 'bar',
+      data: {
+        labels: months,
+        datasets: [{
+          label: 'Monthly Sales (UGX)',
+          data: totals,
+          backgroundColor: 'rgba(46, 204, 113, 0.7)',
+          borderColor: '#27AE60',
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+
+    // Pie Chart
+    new Chart(document.getElementById('salesPieChart'), {
+      type: 'pie',
+      data: {
+        labels: months,
+        datasets: [{
+          label: 'Sales Distribution',
+          data: totals,
+          backgroundColor: [
+            '#2ECC71', '#F39C12', '#E74C3C', '#3498DB', '#9B59B6', '#1ABC9C'
+          ],
+          borderWidth: 1
+        }]
+      }
+    });
+  </script>
+</body>
+</html>

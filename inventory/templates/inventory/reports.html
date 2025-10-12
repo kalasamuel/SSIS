@@ -1,43 +1,433 @@
-<html>
-<head>
-  <title>Reports</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
-  <h3>Sales by Year (bar)</h3>
-  <canvas id="yearlyChart"></canvas>
+{% extends 'inventory/base.html' %}
+{% block title %}Analytics & Reports - Supermarket DBMS{% endblock %}
+{% block content %}
 
-  <h3>Sales by Category (pie)</h3>
-  <canvas id="categoryChart"></canvas>
+<!-- Simple header -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h2>Analytics & Reports</h2>
+    <p class="text-muted mb-0">Comprehensive business intelligence dashboard</p>
+  </div>
+  <div class="btn-group">
+    <button class="btn btn-outline-primary" onclick="exportAllReports()">Export All</button>
+    <button class="btn btn-outline-secondary" onclick="printReports()">Print</button>
+    <button class="btn btn-outline-info" onclick="refreshData()">Refresh</button>
+  </div>
+</div>
 
-  <script>
-    async function draw() {
-      const yResp = await fetch("{% url 'sales_by_year_api' %}");
-      const yJson = await yResp.json();
-      const cResp = await fetch("{% url 'sales_by_category_api' %}");
-      const cJson = await cResp.json();
+<!-- Controls -->
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-3">
+        <label class="form-label">Date Range</label>
+        <select id="dateRange" class="form-select">
+          <option value="7">Last 7 Days</option>
+          <option value="30" selected>Last 30 Days</option>
+          <option value="90">Last 90 Days</option>
+          <option value="365">Last Year</option>
+          <option value="custom">Custom Range</option>
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <label class="form-label">From</label>
+        <input id="fromDate" class="form-control" type="date" />
+      </div>
+      <div class="col-sm-3">
+        <label class="form-label">To</label>
+        <input id="toDate" class="form-control" type="date" />
+      </div>
+      <div class="col-sm-3">
+        <button id="btnGenerate" class="btn btn-primary w-100">Generate Reports</button>
+      </div>
+    </div>
+  </div>
+</div>
 
-      const ctxY = document.getElementById('yearlyChart').getContext('2d');
-      new Chart(ctxY, {
-        type: 'bar',
-        data: {
-          labels: yJson.labels,
-          datasets: [{ label: 'Total sales', data: yJson.data }]
-        },
-        options: { responsive: true }
-      });
+<!-- KPI cards -->
+<div class="row mb-3">
+  <div class="col-md-3 mb-2">
+    <div class="card p-2">
+      <small class="text-muted">Total Revenue</small>
+      <h4 id="totalRevenue" class="mb-0">UGx. 0.00</h4>
+      <small id="revenueGrowth" class="text-success"></small>
+    </div>
+  </div>
+  <div class="col-md-3 mb-2">
+    <div class="card p-2">
+      <small class="text-muted">Total Orders</small>
+      <h4 id="totalOrders" class="mb-0">0</h4>
+      <small class="text-info">Orders Count</small>
+    </div>
+  </div>
+  <div class="col-md-3 mb-2">
+    <div class="card p-2">
+      <small class="text-muted">Average Order Value</small>
+      <h4 id="avgOrderValue" class="mb-0">UGx. 0.00</h4>
+      <small class="text-warning">Avg per Order</small>
+    </div>
+  </div>
+  <div class="col-md-3 mb-2">
+    <div class="card p-2">
+      <small class="text-muted">Top Category</small>
+      <h4 id="topCategory" class="mb-0">—</h4>
+      <small class="text-muted">Highest Revenue Category</small>
+    </div>
+  </div>
+</div>
 
-      const ctxC = document.getElementById('categoryChart').getContext('2d');
-      new Chart(ctxC, {
-        type: 'pie',
-        data: {
-          labels: cJson.labels,
-          datasets: [{ data: cJson.data }]
-        },
-        options: { responsive: true }
-      });
+<!-- Charts row -->
+<div class="row mb-3">
+  <div class="col-lg-8 mb-3">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div><strong>Sales Trend</strong></div>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-primary active" id="btnLine">Line</button>
+          <button class="btn btn-outline-primary" id="btnBar">Bar</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <canvas id="salesTrendChart" height="260"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4 mb-3">
+    <div class="card h-100">
+      <div class="card-header"><strong>Sales by Category</strong></div>
+      <div class="card-body">
+        <canvas id="categoryChart" height="260"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Secondary charts -->
+<div class="row mb-3">
+  <div class="col-md-6 mb-3">
+    <div class="card">
+      <div class="card-header"><strong>Quarterly Performance</strong></div>
+      <div class="card-body">
+        <canvas id="quarterlyChart" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 mb-3">
+    <div class="card">
+      <div class="card-header"><strong>Sales Distribution</strong></div>
+      <div class="card-body">
+        <canvas id="distributionChart" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detailed table -->
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0">Detailed Sales Report</h6>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-outline-primary" onclick="exportTable()">Export</button>
+        <button class="btn btn-outline-secondary" onclick="printTable()">Print</button>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-hover" id="salesTable">
+        <thead class="table-light">
+          <tr>
+            <th>Date</th><th>Product</th><th>Category</th>
+            <th>Qty</th><th>Unit Price</th><th>Total</th><th>Customer</th>
+          </tr>
+        </thead>
+        <tbody id="salesTableBody">
+          <tr><td colspan="7" class="text-center py-4">
+            <div class="spinner-border text-primary" role="status"></div>
+            <div class="mt-2">Loading sales data...</div>
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Loading overlay -->
+<!--
+<div id="loadingOverlay" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+     style="background: rgba(0,0,0,0.45); z-index: 2000; display:none;">
+  <div class="card p-3">
+    <div class="card-body text-center">
+      <div class="spinner-border text-primary mb-3" role="status"></div>
+      <h5 class="mb-1">Generating Reports...</h5>
+      <p class="text-muted mb-0">Please wait while we process your data</p>
+    </div>
+  </div>
+</div>
+-->
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+/* -------------------------
+   Helper & globals
+   ------------------------- */
+const charts = {};
+let currentChartType = 'line';
+
+/* Loading overlay helpers (disabled)
+function showLoading(){ document.getElementById('loadingOverlay').style.display = 'flex'; }
+function hideLoading(){ document.getElementById('loadingOverlay').style.display = 'none'; }
+*/
+
+/* Safe HTML escape */
+function escapeHtml(s){ if(s===null||s===undefined) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
+
+/* Compose query params for date filters */
+function dateQuery() {
+  const from = document.getElementById('fromDate').value;
+  const to = document.getElementById('toDate').value;
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  return params.toString() ? ('?' + params.toString()) : '';
+}
+
+/* -------------------------
+   Robust fetch with timeout
+   ------------------------- */
+async function fetchWithTimeout(resource, options = {}) {
+  const { timeout = 15000, ...opts } = options; // default 15s
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const res = await fetch(resource, { ...opts, signal: controller.signal });
+    clearTimeout(id);
+    return res;
+  } catch (err) {
+    clearTimeout(id);
+    // annotate error for easier debugging
+    if (err.name === 'AbortError') throw new Error('fetch timeout');
+    throw err;
+  }
+}
+
+/* -------------------------
+   API loaders
+   ------------------------- */
+
+async function updateKPIs() {
+  try {
+    const res = await fetchWithTimeout("{% url 'kpi_data_api' %}" + dateQuery(), { timeout: 15000 });
+    if (!res.ok) throw new Error('KPI API ' + res.status);
+    const data = await res.json();
+
+    document.getElementById('totalRevenue').textContent = 'UGx. ' + Number(data.total_revenue || 0).toLocaleString(undefined,{minimumFractionDigits:0, maximumFractionDigits:0});
+    document.getElementById('totalOrders').textContent = Number(data.total_orders || 0).toLocaleString();
+    document.getElementById('avgOrderValue').textContent = 'UGx. ' + Number(data.avg_order_value || 0).toLocaleString(undefined,{minimumFractionDigits:0, maximumFractionDigits:0});
+    document.getElementById('topCategory').textContent = escapeHtml(data.top_category) || '—';
+
+    const growthEl = document.getElementById('revenueGrowth');
+    if (data.revenue_growth_pct !== null && data.revenue_growth_pct !== undefined) {
+      const pct = Number(data.revenue_growth_pct);
+      growthEl.textContent = (pct >= 0 ? '▲ ' : '▼ ') + Math.abs(pct).toFixed(1) + '% (last 30d)';
+      growthEl.className = pct >= 0 ? 'text-success' : 'text-danger';
+    } else {
+      growthEl.textContent = '';
     }
-    draw();
-  </script>
-</body>
-</html>
+  } catch (err) {
+    console.error('updateKPIs error', err);
+    // keep placeholders — do not rethrow
+  }
+}
+
+async function loadSalesData() {
+  try {
+    const res = await fetchWithTimeout("{% url 'sales_by_year_api' %}" + dateQuery(), { timeout: 15000 });
+    if (!res.ok) throw new Error('sales_by_year_api ' + res.status);
+    const payload = await res.json();
+
+    const ctx = document.getElementById('salesTrendChart').getContext('2d');
+    if (charts.salesTrend) charts.salesTrend.destroy();
+
+    charts.salesTrend = new Chart(ctx, {
+      type: currentChartType,
+      data: { labels: payload.labels, datasets: [{ label: 'Total Sales', data: payload.data, borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.12)', fill:true, tension:0.3 }] },
+      options: { responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true, ticks:{ callback: v => 'UGx. ' + Number(v).toLocaleString() } } } }
+    });
+  } catch (err) {
+    console.error('loadSalesData error', err);
+  }
+}
+
+async function loadCategoryData() {
+  try {
+    const res = await fetchWithTimeout("{% url 'sales_by_category_api' %}" + dateQuery(), { timeout: 15000 });
+    if (!res.ok) throw new Error('sales_by_category_api ' + res.status);
+    const payload = await res.json();
+
+    const ctx = document.getElementById('categoryChart').getContext('2d');
+    if (charts.category) charts.category.destroy();
+
+    charts.category = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels: payload.labels, datasets: [{ data: payload.data }] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom' } } }
+    });
+  } catch (err) {
+    console.error('loadCategoryData error', err);
+  }
+}
+
+async function loadQuarterlyData() {
+  try {
+    const res = await fetchWithTimeout("{% url 'sales_by_quarter_api' %}" + dateQuery(), { timeout: 15000 });
+    if (!res.ok) throw new Error('sales_by_quarter_api ' + res.status);
+    const payload = await res.json();
+
+    const ctx = document.getElementById('quarterlyChart').getContext('2d');
+    if (charts.quarterly) charts.quarterly.destroy();
+
+    charts.quarterly = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: payload.labels, datasets: [{ label:'Quarterly Sales', data: payload.data }] },
+      options: { responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } }
+    });
+  } catch (err) {
+    console.error('loadQuarterlyData error', err);
+  }
+}
+
+async function loadDistributionData() {
+  try {
+    const res = await fetchWithTimeout("{% url 'sales_histogram_api' %}" + dateQuery(), { timeout: 15000 });
+    if (!res.ok) throw new Error('sales_histogram_api ' + res.status);
+    const payload = await res.json();
+
+    const ctx = document.getElementById('distributionChart').getContext('2d');
+    if (charts.dist) charts.dist.destroy();
+
+    charts.dist = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: payload.labels, datasets: [{ label:'Sales Count', data: payload.data }] },
+      options: { responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } }
+    });
+  } catch (err) {
+    console.error('loadDistributionData error', err);
+  }
+}
+
+async function loadTableData() {
+  const tbody = document.getElementById('salesTableBody');
+  try {
+    const res = await fetchWithTimeout("{% url 'sales_table_data_api' %}" + dateQuery(), { timeout: 15000 });
+    if (!res.ok) throw new Error('sales_table_data_api ' + res.status);
+    const rows = await res.json();
+
+    if (!rows || rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No sales found for selection</td></tr>';
+      return;
+    }
+
+    // fixed template interpolation and formatting
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${escapeHtml(r.date)}</td>
+        <td>${escapeHtml(r.product)}</td>
+        <td>${escapeHtml(r.category)}</td>
+        <td class="text-end">${Number(r.quantity).toLocaleString()}</td>
+        <td class="text-end">UGx. ${Number(r.unit_price || 0).toLocaleString()}</td>
+        <td class="text-end">UGx. ${Number(r.total || 0).toLocaleString()}</td>
+        <td>${escapeHtml(r.customer)}</td>
+      </tr>` ).join('');
+  } catch (err) {
+    console.error('loadTableData error', err);
+    tbody.innerHTML = '<tr><td colspan="7" class="text-danger text-center">Error loading table data</td></tr>';
+  }
+}
+
+/* -------------------------
+   Orchestration & events
+   ------------------------- */
+
+async function loadAllReports() {
+  // showLoading();
+
+  // use allSettled so overlay always hides even if some calls fail — but ensure we always hide using finally
+  const promises = [
+    updateKPIs(),
+    loadSalesData(),
+    loadCategoryData(),
+    loadQuarterlyData(),
+    loadDistributionData(),
+    loadTableData()
+  ];
+
+  try {
+    await Promise.allSettled(promises);
+  } finally {
+    // ensure overlay hidden no matter what
+    //hideLoading();
+  }
+}
+
+function initializeDateInputs() {
+  const today = new Date();
+  const to = today.toISOString().split('T')[0];
+  const from = new Date(today.getTime() - 30*24*60*60*1000).toISOString().split('T')[0];
+  document.getElementById('fromDate').value = from;
+  document.getElementById('toDate').value = to;
+}
+
+// Chart type buttons
+document.addEventListener('DOMContentLoaded', function() {
+  initializeDateInputs();
+
+  // Wire buttons
+  document.getElementById('btnLine').addEventListener('click', function(){
+    currentChartType='line';
+    this.classList.add('active');
+    document.getElementById('btnBar').classList.remove('active');
+    loadSalesData();
+  });
+  document.getElementById('btnBar').addEventListener('click', function(){
+    currentChartType='bar';
+    this.classList.add('active');
+    document.getElementById('btnLine').classList.remove('active');
+    loadSalesData();
+  });
+
+  document.getElementById('btnGenerate').addEventListener('click', function(){ loadAllReports(); });
+
+  // auto load once
+  loadAllReports();
+});
+
+// Refresh wrapper
+function refreshData(){ loadAllReports(); }
+
+// Exports (placeholders)
+function exportAllReports(){ alert('Export all - not implemented server-side.'); }
+function exportTable(){ alert('Export table - not implemented.'); }
+function printReports(){ window.print(); }
+function printTable(){ window.print(); }
+
+/* Global error handler (disabled overlay hide)
+window.addEventListener('error', (evt) => {
+  console.error('Global error', evt);
+  hideLoading();
+});
+*/
+</script>
+
+
+<style>
+/* Minor style tweaks: you can replace with your design system */
+.card { border-radius: .4rem; }
+.table th, .table td { vertical-align: middle; }
+#salesTable tbody td { white-space: nowrap; }
+</style>
+
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends 'inventory/base.html' %}
+{% load static %}
+{% block title %}Billing{% endblock %}
+{% block content %}
+<h2>Create Sale</h2>
+<form method="post">{% csrf_token %}
+<div class="row">
+<div class="col-md-6">
+<h5>Sale Info</h5>
+{{ sale_form.receipt_no.label_tag }} {{ sale_form.receipt_no }}
+{{ sale_form.sale_datetime.label_tag }} {{ sale_form.sale_datetime }}
+{{ sale_form.customer.label_tag }} {{ sale_form.customer }}
+{{ sale_form.staff.label_tag }} {{ sale_form.staff }}
+{{ sale_form.payment_method.label_tag }} {{ sale_form.payment_method }}
+</div>
+<div class="col-md-6">
+<h5>Line Items</h5>
+{{ formset.management_form }}
+<table class="table">
+<thead><tr><th>Product</th><th>Qty</th><th>Unit Price</th><th>Discount</th><th>Sub-total</th><th></th></tr></thead>
+<tbody id="items">
+{% for f in formset %}
+<tr>
+<td>{{ f.product }}</td>
+<td>{{ f.quantity_sold }}</td>
+<td>${{ f.unit_price|floatformat:0 }}</td>
+<td>{{ f.discount_value }}</td>
+<td class="line-sub">${{ f.sub_total.value|default:"0"|floatformat:0 }}</td>
+<td>{% if f.DELETE %}{{ f.DELETE }}{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+</div>
+<button class="btn btn-primary mt-3" type="submit">Save Sale</button>
+<a class="btn btn-secondary mt-3" href="{% url 'sales_list' %}">Cancel</a>
+</form>
+{% endblock %}

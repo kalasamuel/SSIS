@@ -1,0 +1,25 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Product{% endblock %}
+{% block content %}
+<h2>{% if form.instance.pk %}Edit Product{% else %}New Product{% endif %}</h2>
+<form method="post">{% csrf_token %}
+<div class="row">
+<div class="col-md-6">
+{{ form.product_name.label_tag }} {{ form.product_name }}
+{{ form.brand.label_tag }} {{ form.brand }}
+{{ form.category.label_tag }} {{ form.category }}
+{{ form.supplier.label_tag }} {{ form.supplier }}
+</div>
+<div class="col-md-6">
+{{ form.unit.label_tag }} {{ form.unit }}
+{{ form.unit_cost.label_tag }} {{ form.unit_cost }}
+{{ form.retail_price.label_tag }} {{ form.retail_price }}
+{{ form.stock_quantity.label_tag }} {{ form.stock_quantity }}
+{{ form.reorder_level.label_tag }} {{ form.reorder_level }}
+{{ form.expiry_date.label_tag }} {{ form.expiry_date }}
+</div>
+</div>
+<button class="btn btn-primary mt-3" type="submit">Save</button>
+<a class="btn btn-secondary mt-3" href="{% url 'product_list' %}">Cancel</a>
+</form>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Customers{% endblock %}
+{% block content %}
+<h2>Customers</h2>
+<a class="btn btn-success mb-2" href="{% url 'create_customer' %}">Add Customer</a>
+<table class="table table-striped">
+<thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Actions</th></tr></thead>
+<tbody>
+{% for c in customers %}
+<tr>
+<td>{{ c.first_name }} {{ c.last_name }}</td>
+<td>{{ c.phone }}</td>
+<td>{{ c.email }}</td>
+<td>
+<a class="btn btn-sm btn-primary" href="{% url 'edit_customer' c.pk %}">Edit</a>
+</td>
+</tr>
+{% empty %}
+<tr><td colspan="4">No customers found.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

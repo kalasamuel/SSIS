@@ -1,0 +1,21 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Staff{% endblock %}
+{% block content %}
+<h2>{% if form.instance.pk %}Edit Staff{% else %}New Staff{% endif %}</h2>
+<form method="post">{% csrf_token %}
+<div class="row">
+<div class="col-md-6">
+{{ form.first_name.label_tag }} {{ form.first_name }}
+{{ form.last_name.label_tag }} {{ form.last_name }}
+{{ form.role.label_tag }} {{ form.role }}
+</div>
+<div class="col-md-6">
+{{ form.phone.label_tag }} {{ form.phone }}
+{{ form.username.label_tag }} {{ form.username }}
+{{ form.password_hash.label_tag }} {{ form.password_hash }}
+</div>
+</div>
+<button class="btn btn-primary mt-3">Save</button>
+<a class="btn btn-secondary mt-3" href="{% url 'staff_list' %}">Cancel</a>
+</form>
+{% endblock %}

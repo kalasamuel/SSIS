@@ -1,0 +1,20 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Sale Detail{% endblock %}
+{% block content %}
+<h2>Sale {{ sale.receipt_no }}</h2>
+<p><strong>Date:</strong> {{ sale.sale_datetime }} &nbsp; <strong>Staff:</strong> {{ sale.staff }}</p>
+<table class="table">
+<thead><tr><th>Product</th><th>Qty</th><th>Unit Price</th><th>Sub-total</th></tr></thead>
+<tbody>
+{% for d in details %}
+<tr>
+<td>{{ d.product.product_name }}</td>
+<td>{{ d.quantity_sold }}</td>
+<td>${{ d.unit_price|floatformat:0 }}</td>
+<td>${{ d.sub_total|floatformat:0 }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+<p class="text-end"><strong>Total: </strong> ${{ sale.total_amount|floatformat:0 }}</p>
+{% endblock %}

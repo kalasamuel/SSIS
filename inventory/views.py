@@ -1,73 +1,508 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
+from django.forms import inlineformset_factory
+from django.contrib import messages
 from django.db import transaction
-from .forms import SaleForm, SaleDetailFormSet
-from .models import Product, Sale, SaleDetail
+
+from .models import (
+    Sale, SaleDetail, Product, Supplier, Category,
+    Customer, Staff, Discount, PurchaseOrder,
+    PurchaseOrderDetail, InventoryLog, Payroll
+)
+from .forms import (
+    SaleForm, SaleDetailForm, SaleDetailFormSet, ProductForm, SupplierForm,
+    CategoryForm, CustomerForm, SaffForm, DiscountForm, PurchaseOrderForm,
+    PurchaseOrderDetailForm, InventoryLogForm, PayrollForm
+)
+
+
 from django.http import JsonResponse
-from django.db.models import Sum
-from django.db.models.functions import ExtractYear
+from django.db.models import Sum, F, FloatField
+from django.db.models.functions import ExtractYear, ExtractQuarter, ExtractMonth
 
+
+from django.utils import timezone
+from datetime import timedelta
+
+
+from datetime import timedelta, date
+from django.utils.timezone import now
+
+# ---------------------------------------------------------
+# DASHBOARD / HOME PAGE
+# ---------------------------------------------------------
 def home(request):
-    return render(request, 'inventory/home.html')   
+    total_sales = Sale.objects.count()
+    total_products = Product.objects.count()
+    total_customers = Customer.objects.count()
+    total_staff = Staff.objects.count()
+    return render(request, "inventory/home.html", {
+        "total_sales": total_sales,
+        "total_products": total_products,
+        "total_customers": total_customers,
+        "total_staff": total_staff,
+    })
 
+
+# ---------------------------------------------------------
+# SALE + SALE DETAILS
+# ---------------------------------------------------------
+@transaction.atomic
 def create_sale(request):
-    if request.method == 'POST':
-        form = SaleForm(request.POST)
+    """Create a sale and related sale detail items."""
+    if request.method == "POST":
+        sale_form = SaleForm(request.POST)
         formset = SaleDetailFormSet(request.POST)
-        if form.is_valid() and formset.is_valid():
-            with transaction.atomic():
-                sale = form.save(commit=False)
-                sale.total_amount = 0
-                sale.save()
-                total = 0
-                for detail_form in formset:
-                    if detail_form.cleaned_data and not detail_form.cleaned_data.get('DELETE', False):
-                        detail = detail_form.save(commit=False)
-                        detail.sale = sale
-                        # compute sub_total = qty * unit_price - discount_value (if any)
-                        qty = detail.quantity_sold
-                        unit = detail.unit_price
-                        dval = detail.discount_value or 0
-                        detail.sub_total = (qty * unit) - dval
-                        detail.save()
-                        # reduce product stock
-                        prod = Product.objects.get(pk=detail.product.pk)
-                        prod.stock_quantity = prod.stock_quantity - detail.quantity_sold
-                        prod.save()
-                        total += float(detail.sub_total)
-                sale.total_amount = total
-                sale.save()
-            return redirect('sale_detail', pk=sale.pk)
+        if sale_form.is_valid() and formset.is_valid():
+            sale = sale_form.save(commit=False)
+            sale.save()
+            formset.instance = sale
+            formset.save()
+            messages.success(request, "Sale recorded successfully.")
+            return redirect("sales_list")
     else:
-        form = SaleForm()
+        sale_form = SaleForm()
         formset = SaleDetailFormSet()
-    return render(request, 'inventory/create_sale.html', {'form': form, 'formset': formset})
+
+    return render(request, "inventory/billing_form.html", {
+        "sale_form": sale_form,
+        "formset": formset
+    })
 
 
-#Graphical Reports
-
-def sales_by_year_api(request):
-    qs = (Sale.objects
-          .annotate(year=ExtractYear('sale_datetime'))
-          .values('year')
-          .annotate(total=Sum('total_amount'))
-          .order_by('year'))
-    labels = [r['year'] for r in qs]
-    data = [float(r['total'] or 0) for r in qs]
-    return JsonResponse({'labels': labels, 'data': data})
-
-def sales_by_category_api(request):
-    qs = (SaleDetail.objects
-          .values('product__category__category_name')
-          .annotate(total=Sum('sub_total'))
-          .order_by('-total'))
-    labels = [r['product__category__category_name'] for r in qs]
-    data = [float(r['total'] or 0) for r in qs]
-    return JsonResponse({'labels': labels, 'data': data})
+def sales_list(request):
+    """List all recorded sales."""
+    sales = Sale.objects.all().order_by("-sale_datetime")
+    return render(request, "inventory/sales_list.html", {"sales": sales})
 
 
-def create_sale(request):
-    # (your existing sale form logic)
-    return render(request, 'inventory/create_sale.html', {})  # simplified if just testing template
+def sale_detail(request, pk):
+    """View detailed sale items."""
+    sale = get_object_or_404(Sale, pk=pk)
+    details = SaleDetail.objects.filter(sale=sale)
+    return render(request, "inventory/sale_detail.html", {"sale": sale, "details": details})
+
+
+# ---------------------------------------------------------
+# PRODUCT
+# ---------------------------------------------------------
+def create_product(request):
+    if request.method == "POST":
+        form = ProductForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Product added successfully.")
+            return redirect("product_list")
+    else:
+        form = ProductForm()
+    return render(request, "inventory/product_form.html", {"form": form})
+
+
+def product_list(request):
+    products = Product.objects.all().order_by("product_name")
+    return render(request, "inventory/product_list.html", {"products": products})
+
+
+def edit_product(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+    if request.method == "POST":
+        form = ProductForm(request.POST, instance=product)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Product updated.")
+            return redirect("product_list")
+    else:
+        form = ProductForm(instance=product)
+    return render(request, "inventory/product_form.html", {"form": form})
+
+
+# ---------------------------------------------------------
+# SUPPLIER
+# ---------------------------------------------------------
+def create_supplier(request):
+    if request.method == "POST":
+        form = SupplierForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Supplier added successfully.")
+            return redirect("supplier_list")
+    else:
+        form = SupplierForm()
+    return render(request, "inventory/supplier_form.html", {"form": form})
+
+
+def supplier_list(request):
+    suppliers = Supplier.objects.all()
+    return render(request, "inventory/supplier_list.html", {"suppliers": suppliers})
+
+
+# ---------------------------------------------------------
+# CATEGORY
+# ---------------------------------------------------------
+def create_category(request):
+    if request.method == "POST":
+        form = CategoryForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Category added successfully.")
+            return redirect("category_list")
+    else:
+        form = CategoryForm()
+    return render(request, "inventory/category_form.html", {"form": form})
+
+
+def category_list(request):
+    categories = Category.objects.all()
+    return render(request, "inventory/category_list.html", {"categories": categories})
+
+
+# ---------------------------------------------------------
+# CUSTOMER
+# ---------------------------------------------------------
+def create_customer(request):
+    if request.method == "POST":
+        form = CustomerForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Customer registered successfully.")
+            return redirect("customer_list")
+    else:
+        form = CustomerForm()
+    return render(request, "inventory/customer_form.html", {"form": form})
+
+
+def customer_list(request):
+    customers = Customer.objects.all().order_by("first_name")
+    return render(request, "inventory/customer_list.html", {"customers": customers})
+
+
+def edit_customer(request, pk):
+    customer = get_object_or_404(Customer, pk=pk)
+    if request.method == "POST":
+        form = CustomerForm(request.POST, instance=customer)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Customer updated successfully.")
+            return redirect("customer_list")
+    else:
+        form = CustomerForm(instance=customer)
+    return render(request, "inventory/customer_form.html", {"form": form})
+
+
+# ---------------------------------------------------------
+# STAFF
+# ---------------------------------------------------------
+def create_staff(request):
+    if request.method == "POST":
+        form = SaffForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Staff added successfully.")
+            return redirect("staff_list")
+    else:
+        form = SaffForm()
+    return render(request, "inventory/staff_form.html", {"form": form})
+
+
+def staff_list(request):
+    staff = Staff.objects.all()
+    return render(request, "inventory/staff_list.html", {"staff": staff})
+
+
+# ---------------------------------------------------------
+# DISCOUNT
+# ---------------------------------------------------------
+def create_discount(request):
+    if request.method == "POST":
+        form = DiscountForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Discount created successfully.")
+            return redirect("discount_list")
+    else:
+        form = DiscountForm()
+    return render(request, "inventory/discount_form.html", {"form": form})
+
+
+def discount_list(request):
+    discounts = Discount.objects.all()
+    return render(request, "inventory/discount_list.html", {"discounts": discounts})
+
+
+# ---------------------------------------------------------
+# PURCHASE ORDER
+# ---------------------------------------------------------
+def create_purchase_order(request):
+    if request.method == "POST":
+        form = PurchaseOrderForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Purchase order created.")
+            return redirect("purchase_order_list")
+    else:
+        form = PurchaseOrderForm()
+    return render(request, "inventory/purchase_order_form.html", {"form": form})
+
+
+def purchase_order_list(request):
+    orders = PurchaseOrder.objects.all().order_by("-order_date")
+    return render(request, "inventory/purchase_order_list.html", {"orders": orders})
+
+
+# ---------------------------------------------------------
+# PURCHASE ORDER DETAIL
+# ---------------------------------------------------------
+def create_purchase_order_detail(request):
+    if request.method == "POST":
+        form = PurchaseOrderDetailForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Purchase order detail added.")
+            return redirect("purchase_order_detail_list")
+    else:
+        form = PurchaseOrderDetailForm()
+    return render(request, "inventory/purchase_order_detail_form.html", {"form": form})
+
+
+def purchase_order_detail_list(request):
+    details = PurchaseOrderDetail.objects.all()
+    return render(request, "inventory/purchase_order_detail_list.html", {"details": details})
+
+
+# ---------------------------------------------------------
+# INVENTORY LOG (Material Arrival)
+# ---------------------------------------------------------
+def log_inventory(request):
+    if request.method == "POST":
+        form = InventoryLogForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Inventory log recorded.")
+            return redirect("inventory_log_list")
+    else:
+        form = InventoryLogForm()
+    return render(request, "inventory/material_arrival_form.html", {"form": form})
+
+
+def inventory_log_list(request):
+    logs = InventoryLog.objects.all().order_by("-arrival_date")
+    return render(request, "inventory/inventory_log_list.html", {"logs": logs})
+
+
+# ---------------------------------------------------------
+# PAYROLL
+# ---------------------------------------------------------
+def create_payroll(request):
+    if request.method == "POST":
+        form = PayrollForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Payroll record saved.")
+            return redirect("payroll_list")
+    else:
+        form = PayrollForm()
+    return render(request, "inventory/payroll_form.html", {"form": form})
+
+
+def payroll_list(request):
+    payrolls = Payroll.objects.all().order_by("-payment_date")
+    return render(request, "inventory/payroll_list.html", {"payrolls": payrolls})
+
+
+
+
+# ---------------------------------------------------------
+# 📊 REPORTING & ANALYTICS API VIEWS
+# ---------------------------------------------------------
 
 def reports_view(request):
-    return render(request, 'inventory/reports.html')
+    total_revenue = Sale.objects.aggregate(total=Sum('total_amount'))['total'] or 0
+    total_orders = Sale.objects.count()
+    avg_order_value = total_revenue / total_orders if total_orders else 0
+    top_category = (
+        SaleDetail.objects
+        .values('product__category__category_name')
+        .annotate(total=Sum(F('unit_price') * F('quantity_sold')))
+        .order_by('-total')
+        .first()
+    )
+    context = {
+        'total_revenue': total_revenue,
+        'total_orders': total_orders,
+        'avg_order_value': avg_order_value,
+        'top_category': top_category['product__category__category_name'] if top_category else '-',
+    }
+    return render(request, 'inventory/reports.html', context)
+
+def sales_by_year_api(request):
+    """Return total sales grouped by year."""
+    data = (
+        Sale.objects
+        .annotate(year=ExtractYear('sale_datetime'))
+        .values('year')
+        .annotate(total=Sum('total_amount', output_field=FloatField()))
+        .order_by('year')
+    )
+    labels = [d['year'] for d in data]
+    values = [float(d['total'] or 0) for d in data]
+    return JsonResponse({'labels': labels, 'data': values})
+
+
+def sales_by_category_api(request):
+    """Return total sales grouped by product category."""
+    data = (
+        SaleDetail.objects
+        .values('product__category__category_name')
+        .annotate(total=Sum(F('unit_price') * F('quantity_sold'), output_field=FloatField()))
+        .order_by('product__category__category_name')
+    )
+    labels = [d['product__category__category_name'] or 'Uncategorized' for d in data]
+    values = [float(d['total'] or 0) for d in data]
+    return JsonResponse({'labels': labels, 'data': values})
+
+
+def sales_by_quarter_api(request):
+    """Return quarterly sales totals for each year."""
+    data = (
+        Sale.objects
+        .annotate(year=ExtractYear('sale_datetime'), quarter=ExtractQuarter('sale_datetime'))
+        .values('year', 'quarter')
+        .annotate(total=Sum('total_amount', output_field=FloatField()))
+        .order_by('year', 'quarter')
+    )
+    labels = [f"Q{d['quarter']} {d['year']}" for d in data]
+    values = [float(d['total'] or 0) for d in data]
+    return JsonResponse({'labels': labels, 'data': values})
+
+
+def sales_histogram_api(request):
+    """Return histogram-like data for sales frequency distribution."""
+    buckets = {
+        "0–100": Sale.objects.filter(total_amount__lt=100).count(),
+        "100–500": Sale.objects.filter(total_amount__gte=100, total_amount__lt=500).count(),
+        "500–1000": Sale.objects.filter(total_amount__gte=500, total_amount__lt=1000).count(),
+        "1000+": Sale.objects.filter(total_amount__gte=1000).count(),
+    }
+    labels = list(buckets.keys())
+    values = list(buckets.values())
+    return JsonResponse({'labels': labels, 'data': values})
+
+def sales_table_data_api(request):
+    sales = (
+        SaleDetail.objects
+        .select_related('sale', 'product', 'product__category', 'sale__customer')
+        .values(
+            date=F('sale__sale_datetime'),
+            product=F('product__product_name'),
+            category=F('product__category__category_name'),
+            quantity=F('quantity_sold'),
+            unit_price=F('unit_price'),
+            total=F('quantity_sold') * F('unit_price'),
+            customer=F('sale__customer__customer_name'),
+        )
+        .order_by('-sale__sale_datetime')[:100]
+    )
+    return JsonResponse(list(sales), safe=False)
+
+
+today = now().date()
+last_month = today - timedelta(days=30)
+previous_month = today - timedelta(days=60)
+
+current_sales = Sale.objects.filter(sale_datetime__gte=last_month).aggregate(Sum('total_amount'))['total_amount__sum'] or 0
+past_sales = Sale.objects.filter(sale_datetime__gte=previous_month, sale_datetime__lt=last_month).aggregate(Sum('total_amount'))['total_amount__sum'] or 0
+growth = ((current_sales - past_sales) / past_sales * 100) if past_sales > 0 else 0
+
+
+
+# --- KPI API: returns totals for dashboard ---
+def kpi_data_api(request):
+    """
+    Returns JSON:
+    {
+      "total_revenue": float,
+      "total_orders": int,
+      "avg_order_value": float,
+      "top_category": "Category Name" or null,
+      "revenue_growth_pct": float (optional, relative to previous period)
+    }
+    """
+    # total revenue & orders
+    total_revenue = Sale.objects.aggregate(total=Sum('total_amount'))['total'] or 0
+    total_orders = Sale.objects.count()
+
+    # average order value (safe)
+    avg_order_value = float(total_revenue) / total_orders if total_orders else 0.0
+
+    # top category by sales (unit_price * qty)
+    top_cat_q = (
+        SaleDetail.objects
+        .values('product__category__category_name')
+        .annotate(total=Sum(F('unit_price') * F('quantity_sold'), output_field=FloatField()))
+        .order_by('-total')
+    ).first()
+    top_category = top_cat_q['product__category__category_name'] if top_cat_q else ''
+
+    # optional: simple growth % for last 30 days vs previous 30 days
+    try:
+        now = timezone.now()
+        last_30_start = now - timedelta(days=30)
+        prev_30_start = now - timedelta(days=60)
+        current_sum = Sale.objects.filter(sale_datetime__gte=last_30_start).aggregate(total=Sum('total_amount'))['total'] or 0
+        previous_sum = Sale.objects.filter(sale_datetime__gte=prev_30_start, sale_datetime__lt=last_30_start).aggregate(total=Sum('total_amount'))['total'] or 0
+        if previous_sum and previous_sum != 0:
+            revenue_growth_pct = float((current_sum - previous_sum) / previous_sum * 100)
+        else:
+            revenue_growth_pct = None
+    except Exception:
+        revenue_growth_pct = None
+
+    payload = {
+        'total_revenue': float(total_revenue),
+        'total_orders': int(total_orders),
+        'avg_order_value': float(avg_order_value),
+        'top_category': top_category or '',
+        'revenue_growth_pct': revenue_growth_pct,
+    }
+    return JsonResponse(payload)
+
+
+# --- Sales table API: returns recent sale lines for the detailed table ---
+def sales_table_data_api(request):
+    """
+    Returns a JSON array of recent sale lines:
+    [
+      {"date":"YYYY-MM-DD", "product":"Name", "category":"Cat", "quantity":int, 
+       "unit_price":float, "total":float, "customer":"Name"},
+      ...
+    ]
+    """
+    qs = (
+        SaleDetail.objects
+        .select_related('sale', 'product', 'product__category', 'sale__customer')
+        .order_by('-sale__sale_datetime')[:200]
+    )
+
+    rows = []
+    for sd in qs:
+        sale = sd.sale
+        product = sd.product
+        # customer display: prefer name, fallback to phone/email
+        customer_name = ''
+        if getattr(sale, 'customer', None):
+            c = sale.customer
+            # assemble sensible name
+            if hasattr(c, 'first_name') and c.first_name:
+                customer_name = f"{(c.first_name or '')} {(c.last_name or '')}".strip()
+            else:
+                customer_name = getattr(c, 'phone', '') or getattr(c, 'email', '') or ''
+        rows.append({
+            'date': sale.sale_datetime.strftime('%Y-%m-%d'),
+            'product': product.product_name if product else '',
+            'category': getattr(product.category, 'category_name', '') if getattr(product, 'category', None) else '',
+            'quantity': int(sd.quantity_sold or 0),
+            'unit_price': float(sd.unit_price or 0),
+            'total': float(sd.sub_total or (sd.unit_price * sd.quantity_sold) or 0),
+            'customer': customer_name,
+        })
+
+    return JsonResponse(rows, safe=False)

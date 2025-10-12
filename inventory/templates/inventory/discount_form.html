@@ -1,0 +1,10 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Discount{% endblock %}
+{% block content %}
+<h2>{% if form.instance.pk %}Edit Discount{% else %}New Discount{% endif %}</h2>
+<form method="post">{% csrf_token %}
+{{ form.as_p }}
+<button class="btn btn-primary">Save</button>
+<a class="btn btn-secondary" href="{% url 'discount_list' %}">Cancel</a>
+</form>
+{% endblock %}
