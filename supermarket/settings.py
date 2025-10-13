@@ -79,6 +79,8 @@ DATABASES = {
     'NAME': 'supermarket_db',
     'USER': 'superuser',
     'PASSWORD': 'KmaciS_394846',
+    'USER': 'django',
+    'PASSWORD': 'mypassword',
     'HOST': '127.0.0.1',
     'PORT': '3306',
     'OPTIONS': {
@@ -129,3 +131,4 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
