@@ -3,7 +3,13 @@
 {% block content %}
 <h2>Products</h2>
 <a class="btn btn-success mb-2" href="{% url 'create_product' %}">Add Product</a>
-<table class="table table-hover">
+<div class="d-flex gap-2 mb-3">
+<input id="productSearch" class="form-control" type="text" placeholder="Search products... (name, category, price, stock)">
+<select id="categoryFilter" class="form-select" style="max-width:220px">
+<option value="">All categories</option>
+</select>
+</div>
+<table class="table table-hover" id="productsTable">
 <thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Actions</th></tr></thead>
 <tbody>
 {% for p in products %}
@@ -21,4 +27,67 @@
 {% endfor %}
 </tbody>
 </table>
+<script>
+(function() {
+const table = document.getElementById('productsTable');
+if (!table) return;
+const tbody = table.querySelector('tbody');
+const rows = Array.from(tbody.querySelectorAll('tr'));
+const searchInput = document.getElementById('productSearch');
+const categorySelect = document.getElementById('categoryFilter');
+
+// Build category options from existing rows (2nd column)
+const categorySet = new Set();
+rows.forEach(r => {
+  const cells = r.querySelectorAll('td');
+  if (cells.length >= 2) {
+    const categoryText = (cells[1].textContent || '').trim();
+    if (categoryText && cells.length === 5) categorySet.add(categoryText);
+  }
+});
+Array.from(categorySet).sort((a,b) => a.localeCompare(b)).forEach(cat => {
+  const opt = document.createElement('option');
+  opt.value = cat;
+  opt.textContent = cat;
+  categorySelect.appendChild(opt);
+});
+
+// Client-side empty state row
+let emptyRow = document.createElement('tr');
+emptyRow.setAttribute('data-empty', 'true');
+let td = document.createElement('td');
+td.colSpan = 5;
+td.textContent = 'No matching products.';
+emptyRow.appendChild(td);
+emptyRow.style.display = 'none';
+tbody.appendChild(emptyRow);
+
+function normalize(s){
+  return (s || '').toString().toLowerCase();
+}
+
+function applyFilter() {
+  const q = normalize(searchInput.value);
+  const selectedCat = categorySelect.value;
+  let visibleCount = 0;
+  rows.forEach(r => {
+    // Skip server-rendered empty row if present (colspan=5 and no action button)
+    const cells = r.querySelectorAll('td');
+    if (cells.length !== 5) { r.style.display = 'none'; return; }
+    const nameText = normalize(cells[0].textContent);
+    const catText = (cells[1].textContent || '').trim();
+    const rowText = normalize(r.textContent);
+    const matchesSearch = q === '' || rowText.includes(q);
+    const matchesCat = !selectedCat || catText === selectedCat;
+    const show = matchesSearch && matchesCat;
+    r.style.display = show ? '' : 'none';
+    if (show) visibleCount++;
+  });
+  emptyRow.style.display = visibleCount === 0 ? '' : 'none';
+}
+
+searchInput.addEventListener('input', applyFilter);
+categorySelect.addEventListener('change', applyFilter);
+})();
+</script>
 {% endblock %}

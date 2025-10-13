@@ -42,7 +42,29 @@ def home(request):
         "total_staff": total_staff,
     })
 
+def dashboard(request):
+    today = now().date()
+    last_month = today - timedelta(days=30)
+    previous_month = today - timedelta(days=60)
 
+    current_sales = Sale.objects.filter(
+        sale_datetime__gte=last_month
+    ).aggregate(Sum('total_amount'))['total_amount__sum'] or 0
+
+    past_sales = Sale.objects.filter(
+        sale_datetime__gte=previous_month,
+        sale_datetime__lt=last_month
+    ).aggregate(Sum('total_amount'))['total_amount__sum'] or 0
+
+    growth = ((current_sales - past_sales) / past_sales * 100) if past_sales > 0 else 0
+
+    context = {
+        "current_sales": current_sales,
+        "past_sales": past_sales,
+        "growth": growth,
+    }
+
+    return render(request, "dashboard.html", context)
 # ---------------------------------------------------------
 # SALE + SALE DETAILS
 # ---------------------------------------------------------
@@ -403,14 +425,6 @@ def sales_table_data_api(request):
     )
     return JsonResponse(list(sales), safe=False)
 
-
-today = now().date()
-last_month = today - timedelta(days=30)
-previous_month = today - timedelta(days=60)
-
-current_sales = Sale.objects.filter(sale_datetime__gte=last_month).aggregate(Sum('total_amount'))['total_amount__sum'] or 0
-past_sales = Sale.objects.filter(sale_datetime__gte=previous_month, sale_datetime__lt=last_month).aggregate(Sum('total_amount'))['total_amount__sum'] or 0
-growth = ((current_sales - past_sales) / past_sales * 100) if past_sales > 0 else 0
 
 
 
