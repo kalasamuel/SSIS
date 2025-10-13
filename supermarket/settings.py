@@ -79,6 +79,8 @@ DATABASES = {
     'NAME': 'supermarket_db',
     'USER': 'superuser',
     'PASSWORD': 'KmaciS_394846',
+    'USER': 'django',
+    'PASSWORD': 'KmaciS_394846',
     'HOST': '127.0.0.1',
     'PORT': '3306',
     'OPTIONS': {
