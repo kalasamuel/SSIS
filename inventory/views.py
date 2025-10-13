@@ -30,6 +30,9 @@ from django.utils.timezone import now
 # ---------------------------------------------------------
 # DASHBOARD / HOME PAGE
 # ---------------------------------------------------------
+def authentication(request):
+    pass
+
 def home(request):
     total_sales = Sale.objects.count()
     total_products = Product.objects.count()
@@ -253,6 +256,7 @@ def discount_list(request):
 # ---------------------------------------------------------
 # PURCHASE ORDER
 # ---------------------------------------------------------
+
 def create_purchase_order(request):
     if request.method == "POST":
         form = PurchaseOrderForm(request.POST)

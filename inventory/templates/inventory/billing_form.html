@@ -23,9 +23,9 @@
 <tr>
 <td>{{ f.product }}</td>
 <td>{{ f.quantity_sold }}</td>
-<td>${{ f.unit_price|floatformat:0 }}</td>
+<td>UGX {{ f.unit_price|floatformat:0 }}</td>
 <td>{{ f.discount_value }}</td>
-<td class="line-sub">${{ f.sub_total.value|default:"0"|floatformat:0 }}</td>
+<td class="line-sub">UGX {{ f.sub_total.value|default:"0"|floatformat:0 }}</td>
 <td>{% if f.DELETE %}{{ f.DELETE }}{% endif %}</td>
 </tr>
 {% endfor %}

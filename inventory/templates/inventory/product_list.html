@@ -16,7 +16,7 @@
 <tr>
 <td>{{ p.product_name }}</td>
 <td>{{ p.category.category_name }}</td>
-<td>${{ p.retail_price|floatformat:0 }}</td>
+<td>UGX {{ p.retail_price|floatformat:0 }}</td>
 <td>{{ p.stock_quantity }}</td>
 <td>
 <a class="btn btn-sm btn-primary" href="{% url 'edit_product' p.pk %}">Edit</a>

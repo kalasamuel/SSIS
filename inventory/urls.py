@@ -18,6 +18,7 @@ from . import views
 urlpatterns = [
 # Home / Dashboard
 path('', views.home, name='home'),
+path('authentication/', views.authentication, name='authentication'),
 
 
 # Sales

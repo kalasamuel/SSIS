@@ -3,7 +3,13 @@
 {% block content %}
 <h2>Sales</h2>
 <a class="btn btn-success mb-2" href="{% url 'create_sale' %}">New Sale</a>
-<table class="table table-striped">
+<div class="d-flex gap-2 mb-3">
+<input id="salesSearch" class="form-control" type="text" placeholder="Search sales... (receipt, date, staff, total)">
+<select id="staffFilter" class="form-select" style="max-width:220px">
+<option value="">All staff</option>
+</select>
+</div>
+<table class="table table-striped" id="salesTable">
 <thead><tr><th>Receipt</th><th>Date</th><th>Staff</th><th>Total</th><th>Actions</th></tr></thead>
 <tbody>
 {% for s in sales %}
@@ -11,7 +17,7 @@
 <td>{{ s.receipt_no }}</td>
 <td>{{ s.sale_datetime }}</td>
 <td>{{ s.staff }}</td>
-<td>${{ s.total_amount|floatformat:0 }}</td>
+<td>UGX {{ s.total_amount|floatformat:0 }}</td>
 <td><a class="btn btn-sm btn-primary" href="{% url 'sale_detail' s.pk %}">View</a></td>
 </tr>
 {% empty %}
@@ -19,4 +25,65 @@
 {% endfor %}
 </tbody>
 </table>
+<script>
+(function() {
+const table = document.getElementById('salesTable');
+if (!table) return;
+const tbody = table.querySelector('tbody');
+const rows = Array.from(tbody.querySelectorAll('tr'));
+const searchInput = document.getElementById('salesSearch');
+const staffSelect = document.getElementById('staffFilter');
+
+// Build staff options from existing rows (3rd column)
+const staffSet = new Set();
+rows.forEach(r => {
+  const cells = r.querySelectorAll('td');
+  if (cells.length >= 3) {
+    const staff = (cells[2].textContent || '').trim();
+    if (staff && cells.length === 5) staffSet.add(staff);
+  }
+});
+Array.from(staffSet).sort((a,b) => a.localeCompare(b)).forEach(st => {
+  const opt = document.createElement('option');
+  opt.value = st;
+  opt.textContent = st;
+  staffSelect.appendChild(opt);
+});
+
+// Client-side empty state row
+let emptyRow = document.createElement('tr');
+emptyRow.setAttribute('data-empty', 'true');
+let td = document.createElement('td');
+td.colSpan = 5;
+td.textContent = 'No matching sales.';
+emptyRow.appendChild(td);
+emptyRow.style.display = 'none';
+tbody.appendChild(emptyRow);
+
+function normalize(s){
+  return (s || '').toString().toLowerCase();
+}
+
+function applyFilter() {
+  const q = normalize(searchInput.value);
+  const selectedStaff = staffSelect.value;
+  let visibleCount = 0;
+  rows.forEach(r => {
+    const cells = r.querySelectorAll('td');
+    if (cells.length !== 5) { r.style.display = 'none'; return; }
+    const staff = (cells[2].textContent || '').trim();
+    const rowText = normalize(r.textContent);
+    const matchesSearch = q === '' || rowText.includes(q);
+    const matchesStaff = !selectedStaff || staff === selectedStaff;
+    const show = matchesSearch && matchesStaff;
+    r.style.display = show ? '' : 'none';
+    if (show) visibleCount++;
+  });
+  emptyRow.style.display = visibleCount === 0 ? '' : 'none';
+}
+
+searchInput.addEventListener('input', applyFilter);
+staffSelect.addEventListener('change', applyFilter);
+})();
+</script>
 {% endblock %}
