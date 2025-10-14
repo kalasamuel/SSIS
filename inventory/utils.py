@@ -17,9 +17,7 @@ def generate_purchase_order_pdf(purchase_order):
     y -= 20
     p.drawString(50, y, f"Address: {purchase_order.supplier.address or '-'}")
     y -= 20
-    p.drawString(50, y, f"Contact: {purchase_order.supplier.contact_person or '-'}")
-    y -= 20
-    p.drawString(50, y, f"Email: {purchase_order.supplier.contact_email or '-'}")
+    p.drawString(50, y, f"Email: {purchase_order.supplier.email or '-'}")
     y -= 30
 
     p.setFont("Helvetica-Bold", 14)
@@ -27,7 +25,6 @@ def generate_purchase_order_pdf(purchase_order):
     y -= 20
     p.setFont("Helvetica", 12)
     p.drawString(50, y, "Name")
-    p.drawString(250, y, "SKU")
     p.drawString(350, y, "Qty")
     p.drawString(400, y, "Unit Cost")
     p.drawString(500, y, "Subtotal")
@@ -35,7 +32,6 @@ def generate_purchase_order_pdf(purchase_order):
 
     for item in purchase_order.items.all():
         p.drawString(50, y, item.product.name)
-        p.drawString(250, y, item.product.sku)
         p.drawString(350, y, str(item.quantity))
         p.drawString(400, y, str(item.unit_cost))
         p.drawString(500, y, str(item.subtotal))

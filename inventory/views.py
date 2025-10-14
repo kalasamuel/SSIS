@@ -1,7 +1,10 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.forms import inlineformset_factory
-from django.contrib import messages
 from django.db import transaction
+from django.core.mail import EmailMessage
+from django.conf import settings
+from .utils import generate_purchase_order_pdf
+
 
 from .models import (
     Sale, SaleDetail, Product, Supplier, Category,
@@ -270,19 +273,18 @@ def create_purchase_order(request):
         expected_date = request.POST.get("expected_delivery_date")
         invoice_no = request.POST.get("invoice_no")
 
-        # Create the main order
+        # 1️⃣ Create the main order
         order = PurchaseOrder.objects.create(
             supplier_id=supplier_id,
             expected_delivery_date=expected_date,
             invoice_no=invoice_no
         )
 
-        # Get multiple items
+        # 2️⃣ Add items
         product_ids = request.POST.getlist("product[]")
         quantities = request.POST.getlist("quantity[]")
         unit_costs = request.POST.getlist("unit_cost[]")
 
-        # Save each order detail
         for i in range(len(product_ids)):
             if product_ids[i] and quantities[i] and unit_costs[i]:
                 PurchaseOrderDetail.objects.create(
@@ -292,7 +294,27 @@ def create_purchase_order(request):
                     unit_cost=unit_costs[i],
                 )
 
-        messages.success(request, "Purchase order created successfully.")
+        # 3️⃣ Generate PDF
+        pdf_data = generate_purchase_order_pdf(order)
+
+        # 4️⃣ Email supplier
+        supplier = order.supplier
+        subject = f"Purchase Order #{order.id} from {request.user.username}"
+        body = (
+            f"Dear {supplier.contact_person or supplier.name},\n\n"
+            f"Please find attached our new purchase order.\n\n"
+            f"Thank you,\n{request.user.username}\n{request.user.email}"
+        )
+        email = EmailMessage(
+            subject,
+            body,
+            settings.DEFAULT_FROM_EMAIL,
+            [supplier.contact_email],
+        )
+        email.attach(f"PurchaseOrder_{order.id}.pdf", pdf_data, "application/pdf")
+        email.send(fail_silently=False)
+
+        messages.success(request, "Purchase Order created and sent to supplier.")
         return redirect("purchase_order_list")
 
     return render(request, "inventory/create_purchase_order.html", {
