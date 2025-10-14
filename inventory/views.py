@@ -257,16 +257,48 @@ def discount_list(request):
 # PURCHASE ORDER
 # ---------------------------------------------------------
 
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from .models import PurchaseOrder, PurchaseOrderDetail, Supplier, Product
+
 def create_purchase_order(request):
+    suppliers = Supplier.objects.all()
+    products = Product.objects.all()
+
     if request.method == "POST":
-        form = PurchaseOrderForm(request.POST)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Purchase order created.")
-            return redirect("purchase_order_list")
-    else:
-        form = PurchaseOrderForm()
-    return render(request, "inventory/purchase_order_form.html", {"form": form})
+        supplier_id = request.POST.get("supplier")
+        expected_date = request.POST.get("expected_delivery_date")
+        invoice_no = request.POST.get("invoice_no")
+
+        # Create the main order
+        order = PurchaseOrder.objects.create(
+            supplier_id=supplier_id,
+            expected_delivery_date=expected_date,
+            invoice_no=invoice_no
+        )
+
+        # Get multiple items
+        product_ids = request.POST.getlist("product[]")
+        quantities = request.POST.getlist("quantity[]")
+        unit_costs = request.POST.getlist("unit_cost[]")
+
+        # Save each order detail
+        for i in range(len(product_ids)):
+            if product_ids[i] and quantities[i] and unit_costs[i]:
+                PurchaseOrderDetail.objects.create(
+                    purchase_order=order,
+                    product_id=product_ids[i],
+                    quantity=quantities[i],
+                    unit_cost=unit_costs[i],
+                )
+
+        messages.success(request, "Purchase order created successfully.")
+        return redirect("purchase_order_list")
+
+    return render(request, "inventory/create_purchase_order.html", {
+        "suppliers": suppliers,
+        "products": products,
+    })
 
 
 def purchase_order_list(request):
