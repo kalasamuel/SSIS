@@ -93,4 +93,10 @@ path('api/sales_histogram/', views.sales_histogram_api, name='sales_histogram_ap
 path('api/sales_table_data/', views.sales_table_data_api, name='sales_table_data_api'),
 
 path('api/kpi_data/', views.kpi_data_api, name='kpi_data_api'),
+
+
+# Export Data
+path('reports/export/pdf/', views.export_reports_pdf, name='export_reports_pdf'),
+path('reports/export/csv/', views.export_reports_csv, name='export_reports_csv'),
+path('reports/export/excel/', views.export_reports_excel,name='export_reports_excel'),
 ]
