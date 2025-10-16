@@ -41,11 +41,13 @@ def home(request):
     total_products = Product.objects.count()
     total_customers = Customer.objects.count()
     total_staff = Staff.objects.count()
+    total_suppliers = Supplier.objects.count()
     return render(request, "inventory/home.html", {
         "total_sales": total_sales,
         "total_products": total_products,
         "total_customers": total_customers,
         "total_staff": total_staff,
+        "total_suppliers": total_suppliers,
     })
 
 def dashboard(request):
@@ -162,6 +164,17 @@ def supplier_list(request):
     suppliers = Supplier.objects.all()
     return render(request, "inventory/supplier_list.html", {"suppliers": suppliers})
 
+def edit_supplier(request, pk):
+    supplier = get_object_or_404(Supplier, pk=pk)
+    if request.method == "POST":
+        form = SupplierForm(request.POST, instance=supplier)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Supplier updated successfully.")
+            return redirect("supplier_list")
+    else:
+        form = SupplierForm(instance=supplier)
+    return render(request, "inventory/supplier_form.html", {"form": form})
 
 # ---------------------------------------------------------
 # CATEGORY

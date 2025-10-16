@@ -36,6 +36,8 @@ path('products/<int:pk>/edit/', views.edit_product, name='edit_product'),
 # Suppliers
 path('suppliers/new/', views.create_supplier, name='create_supplier'),
 path('suppliers/', views.supplier_list, name='supplier_list'),
+path('suppliers/edit/<int:pk>/', views.edit_supplier, name='edit_supplier'),
+
 
 
 # Categories

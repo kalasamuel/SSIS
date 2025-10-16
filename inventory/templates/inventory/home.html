@@ -40,6 +40,15 @@
                     <small class="text-warning">Active Employees</small>
                 </div>
             </div>
+            <div class="col-sm-6 col-md-3 mb-3">
+                <a class="text-decoration-none" href="{% url 'supplier_list' %}">
+                    <div class="card p-3 text-center h-100">
+                        <small class="text-muted">Suppliers</small>
+                        <h3 class="mb-0">{{ total_suppliers }}</h3>
+                        <small class="text-secondary">View All Suppliers</small>
+                    </div>
+                </a>
+            </div>
         </div>
 
         </div>
