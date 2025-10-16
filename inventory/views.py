@@ -1,10 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.forms import inlineformset_factory
+from django.contrib import messages
 from django.db import transaction
-from django.core.mail import EmailMessage
-from django.conf import settings
-from .utils import generate_purchase_order_pdf
-
 
 from .models import (
     Sale, SaleDetail, Product, Supplier, Category,
@@ -18,7 +15,7 @@ from .forms import (
 )
 
 
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.db.models import Sum, F, FloatField
 from django.db.models.functions import ExtractYear, ExtractQuarter, ExtractMonth
 
@@ -27,8 +24,24 @@ from django.utils import timezone
 from datetime import timedelta
 
 
-from datetime import timedelta, date
+from datetime import timedelta, date, datetime
 from django.utils.timezone import now
+
+# Import for exports
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.units import inch
+import csv
+import io
+
+try:
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
 
 # ---------------------------------------------------------
 # DASHBOARD / HOME PAGE
@@ -273,67 +286,16 @@ def discount_list(request):
 # PURCHASE ORDER
 # ---------------------------------------------------------
 
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from .models import PurchaseOrder, PurchaseOrderDetail, Supplier, Product
-
 def create_purchase_order(request):
-    suppliers = Supplier.objects.all()
-    products = Product.objects.all()
-
     if request.method == "POST":
-        supplier_id = request.POST.get("supplier")
-        expected_date = request.POST.get("expected_delivery_date")
-        invoice_no = request.POST.get("invoice_no")
-
-        # 1️⃣ Create the main order
-        order = PurchaseOrder.objects.create(
-            supplier_id=supplier_id,
-            expected_delivery_date=expected_date,
-            invoice_no=invoice_no
-        )
-
-        # 2️⃣ Add items
-        product_ids = request.POST.getlist("product[]")
-        quantities = request.POST.getlist("quantity[]")
-        unit_costs = request.POST.getlist("unit_cost[]")
-
-        for i in range(len(product_ids)):
-            if product_ids[i] and quantities[i] and unit_costs[i]:
-                PurchaseOrderDetail.objects.create(
-                    purchase_order=order,
-                    product_id=product_ids[i],
-                    quantity=quantities[i],
-                    unit_cost=unit_costs[i],
-                )
-
-        # 3️⃣ Generate PDF
-        pdf_data = generate_purchase_order_pdf(order)
-
-        # 4️⃣ Email supplier
-        supplier = order.supplier
-        subject = f"Purchase Order #{order.id} from {request.user.username}"
-        body = (
-            f"Dear {supplier.contact_person or supplier.name},\n\n"
-            f"Please find attached our new purchase order.\n\n"
-            f"Thank you,\n{request.user.username}\n{request.user.email}"
-        )
-        email = EmailMessage(
-            subject,
-            body,
-            settings.DEFAULT_FROM_EMAIL,
-            [supplier.contact_email],
-        )
-        email.attach(f"PurchaseOrder_{order.id}.pdf", pdf_data, "application/pdf")
-        email.send(fail_silently=False)
-
-        messages.success(request, "Purchase Order created and sent to supplier.")
-        return redirect("purchase_order_list")
-
-    return render(request, "inventory/create_purchase_order.html", {
-        "suppliers": suppliers,
-        "products": products,
-    })
+        form = PurchaseOrderForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Purchase order created.")
+            return redirect("purchase_order_list")
+    else:
+        form = PurchaseOrderForm()
+    return render(request, "inventory/purchase_order_form.html", {"form": form})
 
 
 def purchase_order_list(request):
@@ -672,3 +634,466 @@ def sales_table_data_api(request):
         })
 
     return JsonResponse(rows, safe=False)
+
+
+# ---------------------------------------------------------
+# 📄 EXPORT VIEWS
+# ---------------------------------------------------------
+
+# Add these export functions to your views.py
+
+def export_report(request):
+    """Export full report (KPIs + Sales details) in selected format"""
+    export_format = request.GET.get('format', 'pdf')
+    
+    if export_format == 'pdf':
+        return export_report_pdf(request)
+    elif export_format == 'csv':
+        return export_report_csv(request)
+    elif export_format == 'excel':
+        return export_report_excel(request)
+    else:
+        return HttpResponse("Invalid export format", status=400)
+
+def export_table(request):
+    """Export only sales table in selected format"""
+    export_format = request.GET.get('format', 'csv')
+    
+    if export_format == 'pdf':
+        return export_table_pdf(request)
+    elif export_format == 'csv':
+        return export_table_csv(request)
+    elif export_format == 'excel':
+        return export_table_excel(request)
+    else:
+        return HttpResponse("Invalid export format", status=400)
+
+def export_report_pdf(request):
+    """Export KPI + Sales details report as PDF."""
+    date_filters = get_date_filters(request)
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="sales_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=18)
+    elements = []
+    
+    styles = getSampleStyleSheet()
+    title_style = styles['Heading1']
+    elements.append(Paragraph("Sales Report", title_style))
+    elements.append(Spacer(1, 12))
+    
+    # Date range
+    if date_filters:
+        date_info = f"Period: {date_filters.get('start', 'All')} to {date_filters.get('end', 'Now')}"
+        elements.append(Paragraph(date_info, styles['Normal']))
+        elements.append(Spacer(1, 12))
+    
+    # KPIs
+    sales_qs = Sale.objects.all()
+    if 'start' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
+    total_revenue = sales_qs.aggregate(total=Sum('total_amount'))['total'] or 0
+    total_orders = sales_qs.count()
+    avg_order_value = total_revenue / total_orders if total_orders else 0
+    
+    kpi_data = [['Metric', 'Value'],
+                ['Total Revenue', f'UGx. {total_revenue:,.0f}'],
+                ['Total Orders', f'{total_orders:,}'],
+                ['Average Order Value', f'UGx. {avg_order_value:,.0f}']]
+    kpi_table = Table(kpi_data, colWidths=[3*inch, 3*inch])
+    kpi_table.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.grey),
+                                   ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                                   ('ALIGN',(0,0),(-1,-1),'CENTER'),
+                                   ('GRID',(0,0),(-1,-1),1,colors.black)]))
+    elements.append(kpi_table)
+    elements.append(Spacer(1, 20))
+    
+    # Sales details
+    elements.append(Paragraph("Sales Details", styles['Heading2']))
+    elements.append(Spacer(1, 12))
+    sale_details_qs = SaleDetail.objects.select_related('sale','product','product__category')
+    if 'start' in date_filters:
+        sale_details_qs = sale_details_qs.filter(sale__sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        sale_details_qs = sale_details_qs.filter(sale__sale_datetime__lte=date_filters['end'])
+    
+    table_data = [['Date','Product','Category','Qty','Price','Total']]
+    for sd in sale_details_qs.order_by('-sale__sale_datetime')[:50]:
+        table_data.append([
+            sd.sale.sale_datetime.strftime('%Y-%m-%d'),
+            sd.product.product_name if sd.product else '',
+            getattr(sd.product.category, 'category_name', '') if getattr(sd.product, 'category', None) else '',
+            str(sd.quantity_sold or 0),
+            f'UGx. {sd.unit_price or 0:,.0f}',
+            f'UGx. {(sd.unit_price * sd.quantity_sold) or 0:,.0f}'
+        ])
+    sales_table = Table(table_data, colWidths=[1*inch, 1.5*inch, 1.2*inch, 0.6*inch, 1*inch, 1.2*inch])
+    sales_table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.grey),
+                                     ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+                                     ('ALIGN',(0,0),(-1,-1),'CENTER'),
+                                     ('GRID',(0,0),(-1,-1),0.5,colors.black)]))
+    elements.append(sales_table)
+    
+    doc.build(elements)
+    pdf = buffer.getvalue()
+    buffer.close()
+    response.write(pdf)
+    return response
+
+def export_report_csv(request):
+    """Export full report as CSV"""
+    date_filters = get_date_filters(request)
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="sales_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv"'
+    
+    writer = csv.writer(response)
+    
+    # Report header
+    writer.writerow(['SALES REPORT'])
+    if date_filters:
+        date_info = f"Period: {date_filters.get('start', 'All')} to {date_filters.get('end', 'Now')}"
+        writer.writerow([date_info])
+    writer.writerow([])
+    
+    # KPIs section
+    writer.writerow(['KPI SUMMARY'])
+    sales_qs = Sale.objects.all()
+    if 'start' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
+    
+    total_revenue = sales_qs.aggregate(total=Sum('total_amount'))['total'] or 0
+    total_orders = sales_qs.count()
+    avg_order_value = total_revenue / total_orders if total_orders else 0
+    
+    writer.writerow(['Metric', 'Value'])
+    writer.writerow(['Total Revenue', f'UGx. {total_revenue:,.0f}'])
+    writer.writerow(['Total Orders', total_orders])
+    writer.writerow(['Average Order Value', f'UGx. {avg_order_value:,.0f}'])
+    writer.writerow([])
+    
+    # Sales details section
+    writer.writerow(['SALES DETAILS'])
+    writer.writerow(['Date','Product','Category','Qty','Price','Total','Customer'])
+    
+    qs = SaleDetail.objects.select_related('sale','product','product__category','sale__customer')
+    if 'start' in date_filters:
+        qs = qs.filter(sale__sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        qs = qs.filter(sale__sale_datetime__lte=date_filters['end'])
+    
+    for sd in qs.order_by('-sale__sale_datetime'):
+        customer_name = ''
+        if sd.sale.customer:
+            c = sd.sale.customer
+            customer_name = f"{getattr(c,'first_name','')} {getattr(c,'last_name','')}".strip() or getattr(c,'phone','') or getattr(c,'email','')
+        writer.writerow([
+            sd.sale.sale_datetime.strftime('%Y-%m-%d'),
+            sd.product.product_name if sd.product else '',
+            getattr(sd.product.category,'category_name','') if getattr(sd.product,'category',None) else '',
+            sd.quantity_sold or 0,
+            sd.unit_price or 0,
+            (sd.unit_price * sd.quantity_sold) or 0,
+            customer_name
+        ])
+    return response
+
+def export_report_excel(request):
+    """Export full report as Excel"""
+    if not EXCEL_AVAILABLE:
+        return HttpResponse("Excel export requires openpyxl. Please install it: pip install openpyxl", status=500)
+    
+    date_filters = get_date_filters(request)
+    
+    # Create workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sales Report"
+    
+    # Styling
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True, size=12)
+    title_font = Font(bold=True, size=16)
+    
+    # Title
+    ws['A1'] = "SALES REPORT"
+    ws['A1'].font = title_font
+    ws.merge_cells('A1:G1')
+    
+    # Date range
+    row = 2
+    if date_filters:
+        date_range = f"Period: {date_filters.get('start', 'All')} to {date_filters.get('end', 'Now')}"
+        ws[f'A{row}'] = date_range
+        ws.merge_cells(f'A{row}:G{row}')
+        row += 1
+    
+    row += 1
+    
+    # KPI Summary
+    sales_qs = Sale.objects.all()
+    if 'start' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
+    
+    total_revenue = sales_qs.aggregate(total=Sum('total_amount'))['total'] or 0
+    total_orders = sales_qs.count()
+    avg_order_value = total_revenue / total_orders if total_orders else 0
+    
+    # KPI Header
+    ws[f'A{row}'] = "KPI SUMMARY"
+    ws[f'A{row}'].font = Font(bold=True, size=14)
+    row += 1
+    
+    # KPI Table Headers
+    ws[f'A{row}'] = "Metric"
+    ws[f'B{row}'] = "Value"
+    ws[f'A{row}'].fill = header_fill
+    ws[f'B{row}'].fill = header_fill
+    ws[f'A{row}'].font = header_font
+    ws[f'B{row}'].font = header_font
+    row += 1
+    
+    # KPI Data
+    kpi_data = [
+        ['Total Revenue', f'UGx. {total_revenue:,.0f}'],
+        ['Total Orders', total_orders],
+        ['Average Order Value', f'UGx. {avg_order_value:,.0f}'],
+    ]
+    
+    for kpi_row in kpi_data:
+        ws[f'A{row}'] = kpi_row[0]
+        ws[f'B{row}'] = kpi_row[1]
+        row += 1
+    
+    row += 2
+    
+    # Sales Details
+    ws[f'A{row}'] = "SALES DETAILS"
+    ws[f'A{row}'].font = Font(bold=True, size=14)
+    row += 1
+    
+    # Headers
+    headers = ['Date', 'Product', 'Category', 'Quantity', 'Unit Price', 'Total', 'Customer']
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=row, column=col_num)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+    
+    row += 1
+    
+    # Get sales data
+    qs = SaleDetail.objects.select_related('sale','product','product__category','sale__customer')
+    if 'start' in date_filters:
+        qs = qs.filter(sale__sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        qs = qs.filter(sale__sale_datetime__lte=date_filters['end'])
+    
+    for sd in qs.order_by('-sale__sale_datetime'):
+        customer_name = ''
+        if sd.sale.customer:
+            c = sd.sale.customer
+            customer_name = f"{getattr(c,'first_name','')} {getattr(c,'last_name','')}".strip() or getattr(c,'phone','') or getattr(c,'email','')
+        
+        ws[f'A{row}'] = sd.sale.sale_datetime.strftime('%Y-%m-%d')
+        ws[f'B{row}'] = sd.product.product_name if sd.product else ''
+        ws[f'C{row}'] = getattr(sd.product.category,'category_name','') if getattr(sd.product,'category',None) else ''
+        ws[f'D{row}'] = sd.quantity_sold or 0
+        ws[f'E{row}'] = sd.unit_price or 0
+        ws[f'F{row}'] = (sd.unit_price * sd.quantity_sold) or 0
+        ws[f'G{row}'] = customer_name
+        row += 1
+    
+    # Adjust column widths
+    ws.column_dimensions['A'].width = 12
+    ws.column_dimensions['B'].width = 25
+    ws.column_dimensions['C'].width = 20
+    ws.column_dimensions['D'].width = 10
+    ws.column_dimensions['E'].width = 12
+    ws.column_dimensions['F'].width = 12
+    ws.column_dimensions['G'].width = 20
+    
+    # Save to response
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="sales_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
+    wb.save(response)
+    
+    return response
+
+def export_table_pdf(request):
+    """Export only sales table as PDF"""
+    date_filters = get_date_filters(request)
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="sales_table_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=18)
+    elements = []
+    
+    styles = getSampleStyleSheet()
+    title_style = styles['Heading1']
+    elements.append(Paragraph("Sales Table", title_style))
+    elements.append(Spacer(1, 12))
+    
+    # Date range
+    if date_filters:
+        date_info = f"Period: {date_filters.get('start', 'All')} to {date_filters.get('end', 'Now')}"
+        elements.append(Paragraph(date_info, styles['Normal']))
+        elements.append(Spacer(1, 12))
+    
+    # Sales table only
+    table_data = [['Date','Product','Category','Qty','Price','Total','Customer']]
+    
+    qs = SaleDetail.objects.select_related('sale','product','product__category','sale__customer')
+    if 'start' in date_filters:
+        qs = qs.filter(sale__sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        qs = qs.filter(sale__sale_datetime__lte=date_filters['end'])
+    
+    for sd in qs.order_by('-sale__sale_datetime')[:100]:  # Limit for PDF
+        customer_name = ''
+        if sd.sale.customer:
+            c = sd.sale.customer
+            customer_name = f"{getattr(c,'first_name','')} {getattr(c,'last_name','')}".strip() or getattr(c,'phone','') or getattr(c,'email','')
+        
+        table_data.append([
+            sd.sale.sale_datetime.strftime('%Y-%m-%d'),
+            sd.product.product_name if sd.product else '',
+            getattr(sd.product.category, 'category_name', '') if getattr(sd.product, 'category', None) else '',
+            str(sd.quantity_sold or 0),
+            f'UGx. {sd.unit_price or 0:,.0f}',
+            f'UGx. {(sd.unit_price * sd.quantity_sold) or 0:,.0f}',
+            customer_name
+        ])
+    
+    sales_table = Table(table_data, colWidths=[1*inch, 1.5*inch, 1.2*inch, 0.6*inch, 1*inch, 1.2*inch, 1.5*inch])
+    sales_table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.grey),
+                                     ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+                                     ('ALIGN',(0,0),(-1,-1),'CENTER'),
+                                     ('GRID',(0,0),(-1,-1),0.5,colors.black)]))
+    elements.append(sales_table)
+    
+    doc.build(elements)
+    pdf = buffer.getvalue()
+    buffer.close()
+    response.write(pdf)
+    return response
+
+def export_table_csv(request):
+    """Export detailed sales table as CSV"""
+    date_filters = get_date_filters(request)
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="sales_table_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow(['Date','Product','Category','Qty','Price','Total','Customer'])
+    
+    qs = SaleDetail.objects.select_related('sale','product','product__category','sale__customer')
+    if 'start' in date_filters:
+        qs = qs.filter(sale__sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        qs = qs.filter(sale__sale_datetime__lte=date_filters['end'])
+    
+    for sd in qs.order_by('-sale__sale_datetime'):
+        customer_name = ''
+        if sd.sale.customer:
+            c = sd.sale.customer
+            customer_name = f"{getattr(c,'first_name','')} {getattr(c,'last_name','')}".strip() or getattr(c,'phone','') or getattr(c,'email','')
+        writer.writerow([
+            sd.sale.sale_datetime.strftime('%Y-%m-%d'),
+            sd.product.product_name if sd.product else '',
+            getattr(sd.product.category,'category_name','') if getattr(sd.product,'category',None) else '',
+            sd.quantity_sold or 0,
+            sd.unit_price or 0,
+            (sd.unit_price * sd.quantity_sold) or 0,
+            customer_name
+        ])
+    return response
+
+def export_table_excel(request):
+    """Export sales table as Excel"""
+    if not EXCEL_AVAILABLE:
+        return HttpResponse("Excel export requires openpyxl. Please install it: pip install openpyxl", status=500)
+    
+    date_filters = get_date_filters(request)
+    
+    # Create workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sales Table"
+    
+    # Styling
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True, size=12)
+    title_font = Font(bold=True, size=16)
+    
+    # Title
+    ws['A1'] = "SALES TABLE"
+    ws['A1'].font = title_font
+    ws.merge_cells('A1:G1')
+    
+    # Date range
+    row = 2
+    if date_filters:
+        date_range = f"Period: {date_filters.get('start', 'All')} to {date_filters.get('end', 'Now')}"
+        ws[f'A{row}'] = date_range
+        ws.merge_cells(f'A{row}:G{row}')
+        row += 1
+    
+    row += 1
+    
+    # Headers
+    headers = ['Date', 'Product', 'Category', 'Quantity', 'Unit Price', 'Total', 'Customer']
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=row, column=col_num)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+    
+    row += 1
+    
+    # Get sales data
+    qs = SaleDetail.objects.select_related('sale','product','product__category','sale__customer')
+    if 'start' in date_filters:
+        qs = qs.filter(sale__sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        qs = qs.filter(sale__sale_datetime__lte=date_filters['end'])
+    
+    for sd in qs.order_by('-sale__sale_datetime'):
+        customer_name = ''
+        if sd.sale.customer:
+            c = sd.sale.customer
+            customer_name = f"{getattr(c,'first_name','')} {getattr(c,'last_name','')}".strip() or getattr(c,'phone','') or getattr(c,'email','')
+        
+        ws[f'A{row}'] = sd.sale.sale_datetime.strftime('%Y-%m-%d')
+        ws[f'B{row}'] = sd.product.product_name if sd.product else ''
+        ws[f'C{row}'] = getattr(sd.product.category,'category_name','') if getattr(sd.product,'category',None) else ''
+        ws[f'D{row}'] = sd.quantity_sold or 0
+        ws[f'E{row}'] = sd.unit_price or 0
+        ws[f'F{row}'] = (sd.unit_price * sd.quantity_sold) or 0
+        ws[f'G{row}'] = customer_name
+        row += 1
+    
+    # Adjust column widths
+    ws.column_dimensions['A'].width = 12
+    ws.column_dimensions['B'].width = 25
+    ws.column_dimensions['C'].width = 20
+    ws.column_dimensions['D'].width = 10
+    ws.column_dimensions['E'].width = 12
+    ws.column_dimensions['F'].width = 12
+    ws.column_dimensions['G'].width = 20
+    
+    # Save to response
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="sales_table_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
+    wb.save(response)
+    
+    return response
