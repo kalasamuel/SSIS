@@ -21,4 +21,5 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('inventory.urls')),
     path('inventory/', include('django.contrib.auth.urls')),
+    
 ]

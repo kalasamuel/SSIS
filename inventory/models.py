@@ -109,6 +109,13 @@ class PurchaseOrder(models.Model):
     total_cost = models.DecimalField(max_digits=12, decimal_places=2)
     invoice_no = models.CharField(max_length=50, null=True, blank=True)
 
+    def __str__(self):
+        return f"PO-{self.id} for {self.supplier.name}"
+
+    @property
+    def total_cost(self):
+        return sum(item.subtotal for item in self.items.all())
+
     class Meta:
         db_table = 'purchase_order'
 
@@ -119,6 +126,10 @@ class PurchaseOrderDetail(models.Model):
     unit_cost = models.DecimalField(max_digits=10, decimal_places=2)
     sub_total = models.DecimalField(max_digits=12, decimal_places=2)
 
+    @property
+    def subtotal(self):
+        return self.quantity * self.unit_cost
+    
     class Meta:
         db_table = 'purchase_order_detail'
 

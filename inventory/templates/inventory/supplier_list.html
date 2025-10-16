@@ -1,0 +1,268 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Suppliers{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-1">Suppliers</h2>
+        <p class="text-muted mb-0">Manage your supplier information</p>
+    </div>
+    <a class="btn btn-primary" href="{% url 'create_supplier' %}">
+        <i class="bi bi-plus-lg me-1"></i>Add Supplier
+    </a>
+</div>
+
+<!-- Search and Filter Section -->
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-8">
+                <div class="input-group">
+                    <input id="supplierSearch" class="form-control" type="text" placeholder="Search suppliers by name, email, or contact number...">
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary" onclick="clearSearch()">
+                        <i class="bi bi-x-lg me-1"></i>Clear
+                    </button>
+                    <span class="badge bg-info align-self-center" id="resultCount">{{ suppliers|length }} suppliers</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Suppliers Table -->
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" id="suppliersTable">
+                <thead class="table-light">
+                    <tr>
+                        <th class="border-0">Supplier Name</th>
+                        <th class="border-0">Contact</th>
+                        <th class="border-0">Email</th>
+                        <th class="border-0">Address</th>
+                        <th class="border-0 text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for supplier in suppliers %}
+                    <tr class="supplier-row">
+                        <td>{{ supplier.supplier_name }}</td>
+                        <td>
+                            {% if supplier.contact_number %}
+                                {{ supplier.contact_number }}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if supplier.email %}
+                                {{ supplier.email }}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if supplier.address %}
+                                <span class="text-truncate d-inline-block" style="max-width: 200px;" title="{{ supplier.address }}">
+                                    {{ supplier.address }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-sm btn-outline-info" data-supplier-id="{{ supplier.pk }}" onclick="viewSupplier(this.dataset.supplierId)" title="View Details">View</button>
+                                <a class="btn btn-sm btn-outline-primary" href="{% url 'edit_supplier' supplier.pk %}" title="Edit Supplier">Edit</a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr id="emptyRow">
+                        <td colspan="5" class="text-center py-5">
+                            <div class="text-muted">
+                                <h5>No suppliers found</h5>
+                                <p>Get started by adding your first supplier.</p>
+                                <a class="btn btn-primary" href="{% url 'create_supplier' %}">
+                                    Add Supplier
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Supplier Details Modal -->
+<div class="modal fade" id="supplierModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Supplier Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="supplierDetails">
+                <!-- Details will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="editSupplierBtn">Edit Supplier</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.avatar-sm {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.table th {
+    font-weight: 600;
+    color: #495057;
+    border-top: none;
+}
+
+.table td {
+    vertical-align: middle;
+    border-top: 1px solid #e9ecef;
+}
+
+.supplier-row:hover {
+    background-color: #f8f9fa;
+}
+
+.btn-group .btn {
+    border-radius: 0.25rem;
+}
+
+.btn-group .btn:first-child {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.btn-group .btn:last-child {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+.card {
+    border: none;
+    border-radius: 0.5rem;
+}
+
+.input-group-text {
+    background-color: #f8f9fa;
+    border-color: #ced4da;
+}
+
+.form-control:focus {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+.badge {
+    font-size: 0.875rem;
+}
+
+.text-truncate {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@media (max-width: 768px) {
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+    
+    .avatar-sm {
+        width: 32px;
+        height: 32px;
+        font-size: 14px;
+    }
+    
+    .btn-group .btn {
+        padding: 0.25rem 0.5rem;
+    }
+}
+</style>
+
+<script>
+(function() {
+    const table = document.getElementById('suppliersTable');
+    if (!table) return;
+    
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('.supplier-row'));
+    const searchInput = document.getElementById('supplierSearch');
+    const resultCount = document.getElementById('resultCount');
+    const emptyRow = document.getElementById('emptyRow');
+
+    function normalize(s) {
+        return (s || '').toString().toLowerCase();
+    }
+
+    function updateResultCount(count) {
+        if (resultCount) {
+            resultCount.textContent = count + ' supplier' + (count !== 1 ? 's' : '');
+        }
+    }
+
+    function applyFilter() {
+        const q = normalize(searchInput.value);
+        let visibleCount = 0;
+        
+        rows.forEach(r => {
+            const rowText = normalize(r.textContent);
+            const matchesSearch = q === '' || rowText.includes(q);
+            r.style.display = matchesSearch ? '' : 'none';
+            if (matchesSearch) visibleCount++;
+        });
+        
+        // Show/hide empty row
+        if (emptyRow) {
+            emptyRow.style.display = visibleCount === 0 ? '' : 'none';
+        }
+        
+        updateResultCount(visibleCount);
+    }
+
+    function clearSearch() {
+        searchInput.value = '';
+        applyFilter();
+        searchInput.focus();
+    }
+
+    // Event listeners
+    searchInput.addEventListener('input', applyFilter);
+    
+    // Global clear function
+    window.clearSearch = clearSearch;
+    
+    // View supplier function
+    window.viewSupplier = function(supplierId) {
+        // This would typically make an AJAX call to get supplier details
+        const modal = new bootstrap.Modal(document.getElementById('supplierModal'));
+        document.getElementById('supplierDetails').innerHTML = 
+            '<p>Loading supplier details...</p>';
+        modal.show();
+        
+        // For now, just show a placeholder
+        setTimeout(() => {
+            document.getElementById('supplierDetails').innerHTML = 
+                '<p>Supplier details would be loaded here for ID: ' + supplierId + '</p>';
+        }, 500);
+    };
+})();
+</script>
+{% endblock %}

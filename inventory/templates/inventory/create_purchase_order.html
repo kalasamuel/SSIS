@@ -17,9 +17,19 @@
           <select name="supplier" id="supplier" class="form-select" required>
             <option value="">Select Supplier</option>
             {% for supplier in suppliers %}
-              <option value="{{ supplier.id }}">{{ supplier.name }}</option>
+              <option value="{{ supplier.id }}"
+              data-email="{{ supplier.email }}"
+              data-phone="{{ supplier.phone }}"
+              >{{ supplier.name }}</option>
             {% endfor %}
           </select>
+        </div>
+
+        <div class="col-md-6" id="supplierInfo" style="display:none;">
+          <div class="border rounded p-2 mt-2 bg-light">
+            <p><strong>Phone:</strong> <span id="supplierPhone"></span></p>
+            <p><strong>Email:</strong> <span id="supplierEmail"></span></p>
+          </div>
         </div>
         <div class="col-md-3">
           <label for="expected_delivery_date" class="form-label">Expected Delivery Date</label>
@@ -41,7 +51,7 @@
       <table class="table table-bordered" id="productTable">
         <thead class="table-light">
           <tr>
-            <th>Product</th>
+            <th>Product(s)</th>
             <th>Quantity</th>
             <th>Unit Cost (UGX)</th>
             <th>Subtotal (UGX)</th>
@@ -111,5 +121,17 @@ document.addEventListener('click', (e) => {
     calculateTotals();
   }
 });
+
+document.getElementById('supplier').addEventListener('change', function() {
+  const selected = this.options[this.selectedIndex];
+  if (selected.value) {
+    document.getElementById('supplierInfo').style.display = 'block';
+    document.getElementById('supplierPhone').innerText = selected.dataset.phone || '—';
+    document.getElementById('supplierEmail').innerText = selected.dataset.email || '—';
+  } else {
+    document.getElementById('supplierInfo').style.display = 'none';
+  }
+});
+
 </script>
 {% endblock %}
