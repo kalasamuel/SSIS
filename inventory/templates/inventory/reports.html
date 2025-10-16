@@ -9,7 +9,7 @@
     <p class="text-muted mb-0">Comprehensive business intelligence dashboard</p>
   </div>
   <div class="btn-group">
-    <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#exportModal">Export Report</button>
+    <button class="btn btn-outline-primary" onclick="showExportPopup('report')">Export Report</button>
     <button class="btn btn-outline-secondary" onclick="printReports()">Print</button>
     <button class="btn btn-outline-info" onclick="refreshData()">Refresh</button>
   </div>
@@ -129,7 +129,7 @@
     <div class="d-flex justify-content-between align-items-center mb-2">
       <h6 class="mb-0">Detailed Sales Report</h6>
       <div class="btn-group btn-group-sm">
-        <button class="btn btn-outline-primary" onclick="exportTable()">Export</button>
+        <button class="btn btn-outline-primary" onclick="showExportPopup('table')">Export</button>
         <button class="btn btn-outline-secondary" onclick="printTable()">Print</button>
       </div>
     </div>
@@ -153,8 +153,35 @@
   </div>
 </div>
 
+<!-- Export Popup Modal -->
+<div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="exportModalLabel">Export Options</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-grid gap-2">
+          <button type="button" class="btn btn-outline-danger" onclick="exportData('pdf')">
+            <i class="fas fa-file-pdf me-2"></i>Export as PDF
+          </button>
+          <button type="button" class="btn btn-outline-success" onclick="exportData('csv')">
+            <i class="fas fa-file-csv me-2"></i>Export as CSV
+          </button>
+          <button type="button" class="btn btn-outline-primary" onclick="exportData('excel')">
+            <i class="fas fa-file-excel me-2"></i>Export as Excel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- Font Awesome for icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
 <script>
 /* -------------------------
@@ -162,6 +189,7 @@
    ------------------------- */
 const charts = {};
 let currentChartType = 'line';
+let currentExportType = '';
 
 /* Safe HTML escape */
 function escapeHtml(s){ if(s===null||s===undefined) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
@@ -174,6 +202,44 @@ function dateQuery() {
   if (from) params.set('from', from);
   if (to) params.set('to', to);
   return params.toString() ? ('?' + params.toString()) : '';
+}
+
+/* -------------------------
+   Export Popup Functions
+   ------------------------- */
+function showExportPopup(type) {
+  currentExportType = type;
+  const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+  const title = document.getElementById('exportModalLabel');
+  
+  if (type === 'report') {
+    title.textContent = 'Export Full Report';
+  } else {
+    title.textContent = 'Export Sales Table';
+  }
+  
+  modal.show();
+}
+
+function exportData(format) {
+  let url;
+  if (currentExportType === 'report') {
+    url = '/export/report/?format=' + format;
+  } else {
+    url = '/export/table/?format=' + format;
+  }
+  
+  // Add current date filters
+  const fromDate = document.getElementById('fromDate').value;
+  const toDate = document.getElementById('toDate').value;
+  
+  if (fromDate) url += '&from=' + fromDate;
+  if (toDate) url += '&to=' + toDate;
+  
+  // Close modal and trigger download
+  const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+  modal.hide();
+  window.location.href = url;
 }
 
 /* -------------------------
@@ -438,13 +504,10 @@ document.addEventListener('DOMContentLoaded', function() {
 // Refresh wrapper
 function refreshData(){ loadAllReports(); }
 
-// Exports (placeholders)
-function exportAllReports(){ alert('Export all - not implemented server-side.'); }
-function exportTable(){ alert('Export table - not implemented.'); }
+// Print functions
 function printReports(){ window.print(); }
 function printTable(){ window.print(); }
 </script>
-
 
 <style>
 /* Minor style tweaks */
