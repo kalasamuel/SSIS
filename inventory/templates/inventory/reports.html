@@ -153,20 +153,6 @@
   </div>
 </div>
 
-<!-- Loading overlay -->
-<!--
-<div id="loadingOverlay" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
-     style="background: rgba(0,0,0,0.45); z-index: 2000; display:none;">
-  <div class="card p-3">
-    <div class="card-body text-center">
-      <div class="spinner-border text-primary mb-3" role="status"></div>
-      <h5 class="mb-1">Generating Reports...</h5>
-      <p class="text-muted mb-0">Please wait while we process your data</p>
-    </div>
-  </div>
-</div>
--->
-
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -176,11 +162,6 @@
    ------------------------- */
 const charts = {};
 let currentChartType = 'line';
-
-/* Loading overlay helpers (disabled)
-function showLoading(){ document.getElementById('loadingOverlay').style.display = 'flex'; }
-function hideLoading(){ document.getElementById('loadingOverlay').style.display = 'none'; }
-*/
 
 /* Safe HTML escape */
 function escapeHtml(s){ if(s===null||s===undefined) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
@@ -199,7 +180,7 @@ function dateQuery() {
    Robust fetch with timeout
    ------------------------- */
 async function fetchWithTimeout(resource, options = {}) {
-  const { timeout = 15000, ...opts } = options; // default 15s
+  const { timeout = 15000, ...opts } = options;
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
   try {
@@ -208,9 +189,38 @@ async function fetchWithTimeout(resource, options = {}) {
     return res;
   } catch (err) {
     clearTimeout(id);
-    // annotate error for easier debugging
     if (err.name === 'AbortError') throw new Error('fetch timeout');
     throw err;
+  }
+}
+
+/* -------------------------
+   Date Range Management
+   ------------------------- */
+function updateDateInputs() {
+  const rangeSelect = document.getElementById('dateRange');
+  const fromInput = document.getElementById('fromDate');
+  const toInput = document.getElementById('toDate');
+  const selectedRange = rangeSelect.value;
+  
+  const today = new Date();
+  const to = today.toISOString().split('T')[0];
+  
+  if (selectedRange === 'custom') {
+    // Enable date inputs for custom range
+    fromInput.disabled = false;
+    toInput.disabled = false;
+    // Don't auto-change dates, let user select
+  } else {
+    // Disable date inputs and calculate range
+    fromInput.disabled = true;
+    toInput.disabled = true;
+    
+    const days = parseInt(selectedRange);
+    const from = new Date(today.getTime() - days*24*60*60*1000).toISOString().split('T')[0];
+    
+    fromInput.value = from;
+    toInput.value = to;
   }
 }
 
@@ -239,7 +249,6 @@ async function updateKPIs() {
     }
   } catch (err) {
     console.error('updateKPIs error', err);
-    // keep placeholders — do not rethrow
   }
 }
 
@@ -331,7 +340,6 @@ async function loadTableData() {
       return;
     }
 
-    // fixed template interpolation and formatting
     tbody.innerHTML = rows.map(r => `
       <tr>
         <td>${escapeHtml(r.date)}</td>
@@ -353,9 +361,6 @@ async function loadTableData() {
    ------------------------- */
 
 async function loadAllReports() {
-  // showLoading();
-
-  // use allSettled so overlay always hides even if some calls fail — but ensure we always hide using finally
   const promises = [
     updateKPIs(),
     loadSalesData(),
@@ -368,8 +373,7 @@ async function loadAllReports() {
   try {
     await Promise.allSettled(promises);
   } finally {
-    // ensure overlay hidden no matter what
-    //hideLoading();
+    // Ensure any cleanup happens
   }
 }
 
@@ -379,19 +383,23 @@ function initializeDateInputs() {
   const from = new Date(today.getTime() - 30*24*60*60*1000).toISOString().split('T')[0];
   document.getElementById('fromDate').value = from;
   document.getElementById('toDate').value = to;
+  
+  // Set initial state
+  updateDateInputs();
 }
 
-// Chart type buttons
+// Chart type buttons and event listeners
 document.addEventListener('DOMContentLoaded', function() {
   initializeDateInputs();
 
-  // Wire buttons
+  // Wire chart type buttons
   document.getElementById('btnLine').addEventListener('click', function(){
     currentChartType='line';
     this.classList.add('active');
     document.getElementById('btnBar').classList.remove('active');
     loadSalesData();
   });
+  
   document.getElementById('btnBar').addEventListener('click', function(){
     currentChartType='bar';
     this.classList.add('active');
@@ -399,9 +407,31 @@ document.addEventListener('DOMContentLoaded', function() {
     loadSalesData();
   });
 
-  document.getElementById('btnGenerate').addEventListener('click', function(){ loadAllReports(); });
+  // Wire Generate button
+  document.getElementById('btnGenerate').addEventListener('click', function(){ 
+    loadAllReports(); 
+  });
 
-  // auto load once
+  // Wire date range dropdown - update dates AND reload reports
+  document.getElementById('dateRange').addEventListener('change', function() {
+    updateDateInputs();
+    loadAllReports();
+  });
+
+  // Wire custom date inputs - reload when changed (only if custom is selected)
+  document.getElementById('fromDate').addEventListener('change', function() {
+    if (document.getElementById('dateRange').value === 'custom') {
+      loadAllReports();
+    }
+  });
+  
+  document.getElementById('toDate').addEventListener('change', function() {
+    if (document.getElementById('dateRange').value === 'custom') {
+      loadAllReports();
+    }
+  });
+
+  // Auto load once on page load
   loadAllReports();
 });
 
@@ -413,18 +443,11 @@ function exportAllReports(){ alert('Export all - not implemented server-side.');
 function exportTable(){ alert('Export table - not implemented.'); }
 function printReports(){ window.print(); }
 function printTable(){ window.print(); }
-
-/* Global error handler (disabled overlay hide)
-window.addEventListener('error', (evt) => {
-  console.error('Global error', evt);
-  hideLoading();
-});
-*/
 </script>
 
 
 <style>
-/* Minor style tweaks: you can replace with your design system */
+/* Minor style tweaks */
 .card { border-radius: .4rem; }
 .table th, .table td { vertical-align: middle; }
 #salesTable tbody td { white-space: nowrap; }
