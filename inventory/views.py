@@ -340,12 +340,58 @@ def payroll_list(request):
 # 📊 REPORTING & ANALYTICS API VIEWS
 # ---------------------------------------------------------
 
+# Helper function to get date filters from request
+def get_date_filters(request):
+    """
+    Extract 'from' and 'to' date parameters from request.
+    Returns a dict with 'start' and 'end' datetime objects or None.
+    """
+    from_date = request.GET.get('from')
+    to_date = request.GET.get('to')
+    
+    filters = {}
+    
+    if from_date:
+        try:
+            # Parse date and set to start of day
+            from datetime import datetime
+            start = datetime.strptime(from_date, '%Y-%m-%d')
+            filters['start'] = timezone.make_aware(start) if timezone.is_naive(start) else start
+        except ValueError:
+            pass
+    
+    if to_date:
+        try:
+            # Parse date and set to end of day
+            from datetime import datetime
+            end = datetime.strptime(to_date, '%Y-%m-%d')
+            end = end.replace(hour=23, minute=59, second=59)
+            filters['end'] = timezone.make_aware(end) if timezone.is_naive(end) else end
+        except ValueError:
+            pass
+    
+    return filters
+
+
 def reports_view(request):
-    total_revenue = Sale.objects.aggregate(total=Sum('total_amount'))['total'] or 0
-    total_orders = Sale.objects.count()
+    date_filters = get_date_filters(request)
+    
+    # Base queryset
+    sales_qs = Sale.objects.all()
+    if 'start' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
+    
+    total_revenue = sales_qs.aggregate(total=Sum('total_amount'))['total'] or 0
+    total_orders = sales_qs.count()
     avg_order_value = total_revenue / total_orders if total_orders else 0
+    
+    # SaleDetail queryset with same filters
+    sale_details_qs = SaleDetail.objects.filter(sale__in=sales_qs)
+    
     top_category = (
-        SaleDetail.objects
+        sale_details_qs
         .values('product__category__category_name')
         .annotate(total=Sum(F('unit_price') * F('quantity_sold')))
         .order_by('-total')
@@ -361,8 +407,17 @@ def reports_view(request):
 
 def sales_by_year_api(request):
     """Return total sales grouped by year."""
+    date_filters = get_date_filters(request)
+    
+    # Base queryset
+    sales_qs = Sale.objects.all()
+    if 'start' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
+    
     data = (
-        Sale.objects
+        sales_qs
         .annotate(year=ExtractYear('sale_datetime'))
         .values('year')
         .annotate(total=Sum('total_amount', output_field=FloatField()))
@@ -375,8 +430,17 @@ def sales_by_year_api(request):
 
 def sales_by_category_api(request):
     """Return total sales grouped by product category."""
+    date_filters = get_date_filters(request)
+    
+    # Base queryset - filter by sale date
+    sale_details_qs = SaleDetail.objects.all()
+    if 'start' in date_filters:
+        sale_details_qs = sale_details_qs.filter(sale__sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        sale_details_qs = sale_details_qs.filter(sale__sale_datetime__lte=date_filters['end'])
+    
     data = (
-        SaleDetail.objects
+        sale_details_qs
         .values('product__category__category_name')
         .annotate(total=Sum(F('unit_price') * F('quantity_sold'), output_field=FloatField()))
         .order_by('product__category__category_name')
@@ -388,8 +452,17 @@ def sales_by_category_api(request):
 
 def sales_by_quarter_api(request):
     """Return quarterly sales totals for each year."""
+    date_filters = get_date_filters(request)
+    
+    # Base queryset
+    sales_qs = Sale.objects.all()
+    if 'start' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
+    
     data = (
-        Sale.objects
+        sales_qs
         .annotate(year=ExtractYear('sale_datetime'), quarter=ExtractQuarter('sale_datetime'))
         .values('year', 'quarter')
         .annotate(total=Sum('total_amount', output_field=FloatField()))
@@ -402,34 +475,24 @@ def sales_by_quarter_api(request):
 
 def sales_histogram_api(request):
     """Return histogram-like data for sales frequency distribution."""
+    date_filters = get_date_filters(request)
+    
+    # Base queryset
+    sales_qs = Sale.objects.all()
+    if 'start' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
+    
     buckets = {
-        "0–100": Sale.objects.filter(total_amount__lt=100).count(),
-        "100–500": Sale.objects.filter(total_amount__gte=100, total_amount__lt=500).count(),
-        "500–1000": Sale.objects.filter(total_amount__gte=500, total_amount__lt=1000).count(),
-        "1000+": Sale.objects.filter(total_amount__gte=1000).count(),
+        "0–100": sales_qs.filter(total_amount__lt=100).count(),
+        "100–500": sales_qs.filter(total_amount__gte=100, total_amount__lt=500).count(),
+        "500–1000": sales_qs.filter(total_amount__gte=500, total_amount__lt=1000).count(),
+        "1000+": sales_qs.filter(total_amount__gte=1000).count(),
     }
     labels = list(buckets.keys())
     values = list(buckets.values())
     return JsonResponse({'labels': labels, 'data': values})
-
-def sales_table_data_api(request):
-    sales = (
-        SaleDetail.objects
-        .select_related('sale', 'product', 'product__category', 'sale__customer')
-        .values(
-            date=F('sale__sale_datetime'),
-            product=F('product__product_name'),
-            category=F('product__category__category_name'),
-            quantity=F('quantity_sold'),
-            unit_price=F('unit_price'),
-            total=F('quantity_sold') * F('unit_price'),
-            customer=F('sale__customer__customer_name'),
-        )
-        .order_by('-sale__sale_datetime')[:100]
-    )
-    return JsonResponse(list(sales), safe=False)
-
-
 
 
 # --- KPI API: returns totals for dashboard ---
@@ -444,16 +507,27 @@ def kpi_data_api(request):
       "revenue_growth_pct": float (optional, relative to previous period)
     }
     """
+    date_filters = get_date_filters(request)
+    
+    # Base queryset
+    sales_qs = Sale.objects.all()
+    if 'start' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
+    
     # total revenue & orders
-    total_revenue = Sale.objects.aggregate(total=Sum('total_amount'))['total'] or 0
-    total_orders = Sale.objects.count()
+    total_revenue = sales_qs.aggregate(total=Sum('total_amount'))['total'] or 0
+    total_orders = sales_qs.count()
 
     # average order value (safe)
     avg_order_value = float(total_revenue) / total_orders if total_orders else 0.0
 
-    # top category by sales (unit_price * qty)
+    # top category by sales (unit_price * qty) - filter by same date range
+    sale_details_qs = SaleDetail.objects.filter(sale__in=sales_qs)
+    
     top_cat_q = (
-        SaleDetail.objects
+        sale_details_qs
         .values('product__category__category_name')
         .annotate(total=Sum(F('unit_price') * F('quantity_sold'), output_field=FloatField()))
         .order_by('-total')
@@ -461,18 +535,19 @@ def kpi_data_api(request):
     top_category = top_cat_q['product__category__category_name'] if top_cat_q else ''
 
     # optional: simple growth % for last 30 days vs previous 30 days
-    try:
-        now = timezone.now()
-        last_30_start = now - timedelta(days=30)
-        prev_30_start = now - timedelta(days=60)
-        current_sum = Sale.objects.filter(sale_datetime__gte=last_30_start).aggregate(total=Sum('total_amount'))['total'] or 0
-        previous_sum = Sale.objects.filter(sale_datetime__gte=prev_30_start, sale_datetime__lt=last_30_start).aggregate(total=Sum('total_amount'))['total'] or 0
-        if previous_sum and previous_sum != 0:
-            revenue_growth_pct = float((current_sum - previous_sum) / previous_sum * 100)
-        else:
+    # Only calculate if no custom date range is provided
+    revenue_growth_pct = None
+    if not date_filters:  # Only calculate growth for default view
+        try:
+            now_time = timezone.now()
+            last_30_start = now_time - timedelta(days=30)
+            prev_30_start = now_time - timedelta(days=60)
+            current_sum = Sale.objects.filter(sale_datetime__gte=last_30_start).aggregate(total=Sum('total_amount'))['total'] or 0
+            previous_sum = Sale.objects.filter(sale_datetime__gte=prev_30_start, sale_datetime__lt=last_30_start).aggregate(total=Sum('total_amount'))['total'] or 0
+            if previous_sum and previous_sum != 0:
+                revenue_growth_pct = float((current_sum - previous_sum) / previous_sum * 100)
+        except Exception:
             revenue_growth_pct = None
-    except Exception:
-        revenue_growth_pct = None
 
     payload = {
         'total_revenue': float(total_revenue),
@@ -494,11 +569,17 @@ def sales_table_data_api(request):
       ...
     ]
     """
-    qs = (
-        SaleDetail.objects
-        .select_related('sale', 'product', 'product__category', 'sale__customer')
-        .order_by('-sale__sale_datetime')[:200]
-    )
+    date_filters = get_date_filters(request)
+    
+    # Base queryset
+    qs = SaleDetail.objects.select_related('sale', 'product', 'product__category', 'sale__customer')
+    
+    if 'start' in date_filters:
+        qs = qs.filter(sale__sale_datetime__gte=date_filters['start'])
+    if 'end' in date_filters:
+        qs = qs.filter(sale__sale_datetime__lte=date_filters['end'])
+    
+    qs = qs.order_by('-sale__sale_datetime')[:200]
 
     rows = []
     for sd in qs:
