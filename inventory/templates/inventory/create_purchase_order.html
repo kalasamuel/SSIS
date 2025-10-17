@@ -19,8 +19,8 @@
             {% for supplier in suppliers %}
               <option value="{{ supplier.id }}"
               data-email="{{ supplier.email }}"
-              data-phone="{{ supplier.phone }}"
-              >{{ supplier.name }}</option>
+              data-phone="{{ supplier.contact_number }}"
+              >{{ supplier.supplier_name }}</option>
             {% endfor %}
           </select>
         </div>
@@ -64,7 +64,7 @@
               <select name="product[]" class="form-select productSelect" required>
                 <option value="">Select Product</option>
                 {% for product in products %}
-                  <option value="{{ product.id }}">{{ product.name }}</option>
+                  <option value="{{ product.id }}">{{ product.product_name }}</option>
                 {% endfor %}
               </select>
             </td>
