@@ -321,13 +321,13 @@ def create_purchase_order(request):
                     unit_cost=unit_costs[i],
                 )
 
-        # ✅ Generate PDF
+        #  Generate PDF
         pdf_data = generate_purchase_order_pdf(order)
 
-        # ✅ Build and send email
+        #  Build and send email
         subject = f"Purchase Order #{order.id} from {request.user.username}"
         body = (
-            f"Dear {order.supplier.contact_person or order.supplier.name},\n\n"
+            f"Dear {order.supplier.supplier_name},\n\n"
             f"Please find attached our new purchase order.\n\n"
             f"Thank you,\n{request.user.username}\n{request.user.email}"
         )
