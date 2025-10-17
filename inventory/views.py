@@ -3,6 +3,7 @@ from django.forms import inlineformset_factory
 from django.contrib import messages
 from django.db import transaction
 
+
 from .models import (
     Sale, SaleDetail, Product, Supplier, Category,
     Customer, Staff, Discount, PurchaseOrder,
@@ -13,6 +14,8 @@ from .forms import (
     CategoryForm, CustomerForm, SaffForm, DiscountForm, PurchaseOrderForm,
     PurchaseOrderDetailForm, InventoryLogForm, PayrollForm
 )
+
+from .utils import generate_purchase_order_pdf
 
 
 from django.http import JsonResponse, HttpResponse
