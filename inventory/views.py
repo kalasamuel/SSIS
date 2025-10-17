@@ -304,7 +304,8 @@ def create_purchase_order(request):
         order = PurchaseOrder.objects.create(
             supplier_id=supplier_id,
             expected_delivery_date=expected_date,
-            invoice_no=invoice_no
+            invoice_no=invoice_no,
+            staff=request.user
         )
 
         # Add product line items
