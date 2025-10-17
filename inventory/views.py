@@ -26,6 +26,8 @@ from datetime import timedelta
 
 from datetime import timedelta, date, datetime
 from django.utils.timezone import now
+from django.core.mail import EmailMessage
+from django.conf import settings
 
 # Import for exports
 from reportlab.lib.pagesizes import letter, A4
@@ -287,15 +289,62 @@ def discount_list(request):
 # ---------------------------------------------------------
 
 def create_purchase_order(request):
+    suppliers = Supplier.objects.all()
+    products = Product.objects.all()
+
     if request.method == "POST":
-        form = PurchaseOrderForm(request.POST)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Purchase order created.")
-            return redirect("purchase_order_list")
-    else:
-        form = PurchaseOrderForm()
-    return render(request, "inventory/purchase_order_form.html", {"form": form})
+        supplier_id = request.POST.get("supplier")
+        expected_date = request.POST.get("expected_delivery_date")
+        invoice_no = request.POST.get("invoice_no")
+
+        # Create the main order
+        order = PurchaseOrder.objects.create(
+            supplier_id=supplier_id,
+            expected_delivery_date=expected_date,
+            invoice_no=invoice_no
+        )
+
+        # Add product line items
+        product_ids = request.POST.getlist("product[]")
+        quantities = request.POST.getlist("quantity[]")
+        unit_costs = request.POST.getlist("unit_cost[]")
+
+        for i in range(len(product_ids)):
+            if product_ids[i] and quantities[i] and unit_costs[i]:
+                PurchaseOrderDetail.objects.create(
+                    purchase_order=order,
+                    product_id=product_ids[i],
+                    quantity=quantities[i],
+                    unit_cost=unit_costs[i],
+                )
+
+        # ✅ Generate PDF
+        pdf_data = generate_purchase_order_pdf(order)
+
+        # ✅ Build and send email
+        subject = f"Purchase Order #{order.id} from {request.user.username}"
+        body = (
+            f"Dear {order.supplier.contact_person or order.supplier.name},\n\n"
+            f"Please find attached our new purchase order.\n\n"
+            f"Thank you,\n{request.user.username}\n{request.user.email}"
+        )
+
+        email = EmailMessage(
+            subject,
+            body,
+            settings.DEFAULT_FROM_EMAIL,
+            [order.supplier.contact_email],
+        )
+        email.attach(f"PurchaseOrder_{order.id}.pdf", pdf_data, "application/pdf")
+        email.send(fail_silently=False)
+
+        messages.success(request, "Purchase order created and sent to supplier.")
+        return redirect("purchase_order_list")
+
+    return render(request, "inventory/create_purchase_order.html", {
+        "suppliers": suppliers,
+        "products": products,
+    })
 
 
 def purchase_order_list(request):
