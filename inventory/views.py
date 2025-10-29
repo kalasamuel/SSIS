@@ -11,7 +11,7 @@ from .models import (
 )
 from .forms import (
     SaleForm, SaleDetailForm, SaleDetailFormSet, ProductForm, SupplierForm,
-    CategoryForm, CustomerForm, StaffForm, DiscountForm, PurchaseOrderForm,
+    CategoryForm, CustomerForm, SaffForm, DiscountForm, PurchaseOrderForm,
     PurchaseOrderDetailForm, InventoryLogForm, PayrollForm
 )
 
@@ -509,13 +509,13 @@ def edit_customer(request, pk):
 # ---------------------------------------------------------
 def create_staff(request):
     if request.method == "POST":
-        form = StaffForm(request.POST)
+        form = SaffForm(request.POST)
         if form.is_valid():
             form.save()
             messages.success(request, "Staff added successfully.")
             return redirect("staff_list")
     else:
-        form = StaffForm()
+        form = SaffForm()
     return render(request, "inventory/staff_form.html", {"form": form})
 
 
@@ -1572,7 +1572,13 @@ def financial_report_api(request):
     )
 
     # ---------- EXPIRY LOSSES----------
-    expiry_group = payroll_group  
+    expiry_group = {
+        'day': TruncDay('log_date'),
+        'week': TruncWeek('log_date'),
+        'month': TruncMonth('log_date'),
+        'quarter': TruncQuarter('log_date'),
+    }.get(group_by, TruncDay('log_date'))
+
     expiry_losses = (
         InventoryLog.objects.filter(
             log_date__range=[start, end],
@@ -1594,7 +1600,7 @@ def financial_report_api(request):
         Sale.objects.filter(sale_datetime__date__range=[start, end])
         .annotate(period=group_sale)
         .values('period')
-        .annotate(value=Sum('tax_amount'))
+        #.annotate(value=Sum('tax_amount'))
         .order_by('period')
     )
 
