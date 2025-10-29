@@ -94,7 +94,7 @@ urlpatterns = [
 
     # Export Data - NEW UNIFIED EXPORT ENDPOINTS
     path('export/report/', views.export_report, name='export_report'),
-path('export/table/', views.export_table, name='export_table'),
+    path('export/table/', views.export_table, name='export_table'),
 
 # Remove or update the old export endpoints to match the new function names:
 path('reports/export/pdf/', views.export_report_pdf, name='export_reports_pdf'),
