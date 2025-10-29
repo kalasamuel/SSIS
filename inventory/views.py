@@ -19,8 +19,10 @@ from .utils import generate_purchase_order_pdf
 
 #graphs quarterly and yearly sales
 from django.http import JsonResponse, HttpResponse
-from django.db.models import Sum, F, FloatField
-from django.db.models.functions import ExtractYear, ExtractQuarter, ExtractMonth, TruncYear, TruncQuarter, TruncDate
+from django.db.models import Sum, F, FloatField, ExpressionWrapper, DecimalField
+from django.db.models.functions import ExtractYear, ExtractQuarter, ExtractMonth, TruncDay, TruncWeek, TruncMonth, TruncQuarter
+
+
 from django.utils import timezone
 from datetime import timedelta
 
@@ -1514,29 +1516,29 @@ def financial_report_api(request):
     end = request.GET.get('end')
     group_by = request.GET.get('group_by', 'day')  # default grouping
 
-    # Choose grouping function
+    # Choose correct grouping function on sale_datetime
     group_func = {
-        'day': TruncDay('date'),
-        'week': TruncWeek('date'),
-        'month': TruncMonth('date'),
-        'quarter': TruncQuarter('date')
-    }.get(group_by, TruncDay('date'))
+        'day': TruncDay('sale_datetime'),
+        'week': TruncWeek('sale_datetime'),
+        'month': TruncMonth('sale_datetime'),
+        'quarter': TruncQuarter('sale_datetime'),
+    }.get(group_by, TruncDay('sale_datetime'))
 
     # GROSS SALES
-    gross_sales = Sale.objects.filter(date__range=[start, end]) \
+    gross_sales = Sale.objects.filter(sale_datetime__date__range=[start, end]) \
         .annotate(period=group_func) \
         .values('period') \
         .annotate(value=Sum('total_amount')).order_by('period')
 
     # COGS
-    cogs = SaleDetail.objects.filter(sale__date__range=[start, end]) \
+    cogs = SaleDetail.objects.filter(sale__sale_datetime__date__range=[start, end]) \
         .annotate(period=group_func) \
         .values('period') \
         .annotate(value=Sum(F('quantity_sold') * F('product__unit_cost')))
 
-    # PAYROLL
+    # PAYROLL (Payroll model already uses correct field name `date`)
     payroll_expenses = Payroll.objects.filter(date__range=[start, end]) \
-        .annotate(period=group_func) \
+        .annotate(period=TruncMonth('date') if group_by == 'month' else TruncDay('date')) \
         .values('period') \
         .annotate(value=Sum('net_salary'))
 
@@ -1544,17 +1546,17 @@ def financial_report_api(request):
     expiry_losses = InventoryLog.objects.filter(
         date__range=[start, end],
         remarks__icontains='expiry_writeoff'
-    ).annotate(period=group_func) \
+    ).annotate(period=TruncMonth('date') if group_by == 'month' else TruncDay('date')) \
      .values('period') \
      .annotate(value=Sum(F('quantity') * F('product__unit_cost')))
 
     # TAXES 
-    taxes = Sale.objects.filter(date__range=[start, end]) \
+    taxes = Sale.objects.filter(sale_datetime__date__range=[start, end]) \
         .annotate(period=group_func) \
         .values('period') \
         .annotate(value=Sum('tax_amount'))
 
-    # NET INCOME (We will calculate on frontend)
+    # Return structured data
     return JsonResponse({
         'gross_sales': list(gross_sales),
         'cogs': list(cogs),
