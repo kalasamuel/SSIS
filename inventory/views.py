@@ -19,8 +19,8 @@ from .utils import generate_purchase_order_pdf
 
 
 from django.http import JsonResponse, HttpResponse
-from django.db.models import Sum, F, FloatField
-from django.db.models.functions import ExtractYear, ExtractQuarter, ExtractMonth
+from django.db.models import Sum, F, FloatField, ExpressionWrapper, DecimalField
+from django.db.models.functions import ExtractYear, ExtractQuarter, ExtractMonth, TruncDay, TruncWeek, TruncMonth, TruncQuarter
 
 
 from django.utils import timezone
@@ -688,6 +688,63 @@ def sales_table_data_api(request):
 
     return JsonResponse(rows, safe=False)
 
+# ---------------------------------------------------------
+# FINACIAL REPORT
+# ---------------------------------------------------------
+
+def financial_report_api(request):
+    start = request.GET.get('start')
+    end = request.GET.get('end')
+    group_by = request.GET.get('group_by', 'day')  # default grouping
+
+    # Choose grouping function
+    group_func = {
+        'day': TruncDay('date'),
+        'week': TruncWeek('date'),
+        'month': TruncMonth('date'),
+        'quarter': TruncQuarter('date')
+    }.get(group_by, TruncDay('date'))
+
+    # GROSS SALES
+    gross_sales = Sale.objects.filter(date__range=[start, end]) \
+        .annotate(period=group_func) \
+        .values('period') \
+        .annotate(value=Sum('total_amount')).order_by('period')
+
+    # COGS
+    cogs = SaleDetail.objects.filter(sale__date__range=[start, end]) \
+        .annotate(period=group_func) \
+        .values('period') \
+        .annotate(value=Sum(F('quantity_sold') * F('product__unit_cost')))
+
+    # PAYROLL
+    payroll_expenses = Payroll.objects.filter(date__range=[start, end]) \
+        .annotate(period=group_func) \
+        .values('period') \
+        .annotate(value=Sum('net_salary'))
+
+    # EXPIRY LOSSES
+    expiry_losses = InventoryLog.objects.filter(
+        date__range=[start, end],
+        remarks__icontains='expiry_writeoff'
+    ).annotate(period=group_func) \
+     .values('period') \
+     .annotate(value=Sum(F('quantity') * F('product__unit_cost')))
+
+    # TAXES 
+    taxes = Sale.objects.filter(date__range=[start, end]) \
+        .annotate(period=group_func) \
+        .values('period') \
+        .annotate(value=Sum('tax_amount'))
+
+    # NET INCOME (We will calculate on frontend)
+    return JsonResponse({
+        'gross_sales': list(gross_sales),
+        'cogs': list(cogs),
+        'payroll_expenses': list(payroll_expenses),
+        'expiry_losses': list(expiry_losses),
+        'taxes': list(taxes)
+    })
 
 # ---------------------------------------------------------
 # 📄 EXPORT VIEWS
