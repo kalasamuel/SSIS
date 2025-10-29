@@ -17,12 +17,10 @@ from .forms import (
 
 from .utils import generate_purchase_order_pdf
 
-
+#graphs quarterly and yearly sales
 from django.http import JsonResponse, HttpResponse
-from django.db.models import Sum, F, FloatField, ExpressionWrapper, DecimalField
-from django.db.models.functions import ExtractYear, ExtractQuarter, ExtractMonth, TruncDay, TruncWeek, TruncMonth, TruncQuarter
-
-
+from django.db.models import Sum, F, FloatField
+from django.db.models.functions import ExtractYear, ExtractQuarter, ExtractMonth, TruncYear, TruncQuarter, TruncDate
 from django.utils import timezone
 from datetime import timedelta
 
@@ -31,6 +29,7 @@ from datetime import timedelta, date, datetime
 from django.utils.timezone import now
 from django.core.mail import EmailMessage
 from django.conf import settings
+from decimal import Decimal
 
 # Import for exports
 from reportlab.lib.pagesizes import letter, A4
@@ -105,7 +104,41 @@ def create_sale(request):
             sale.save()
             formset.instance = sale
             formset.save()
-            messages.success(request, "Sale recorded successfully.")
+            
+            # Update stock quantities for each sale detail
+            stock_updates = []
+            for sale_detail in formset:
+                if sale_detail.cleaned_data and not sale_detail.cleaned_data.get('DELETE', False):
+                    product = sale_detail.cleaned_data['product']
+                    quantity_sold = sale_detail.cleaned_data['quantity_sold']
+                    
+                    # Check if sufficient stock is available
+                    if product.stock_quantity < quantity_sold:
+                        messages.error(request, f"Insufficient stock for {product.product_name}. Available: {product.stock_quantity}")
+                        return redirect("create_sale")
+                    
+                    # Update stock quantity
+                    product.stock_quantity -= quantity_sold
+                    product.save()
+                    
+                    # Create inventory log entry
+                    InventoryLog.objects.create(
+                        product=product,
+                        staff=sale.staff,
+                        log_type='Sale',
+                        quantity=quantity_sold,
+                        remarks=f"Sale #{sale.receipt_no} - {sale_detail.cleaned_data.get('batch_number', 'No batch')}"
+                    )
+                    
+                    stock_updates.append(f"{product.product_name}: -{quantity_sold}")
+            
+            # Apply automatic discounts
+            discount_result = apply_automatic_discounts(sale)
+            if discount_result:
+                messages.success(request, f"Sale recorded successfully. Stock updated. Discount applied: UGx. {discount_result['discount_amount']:,.0f}")
+            else:
+                messages.success(request, f"Sale recorded successfully. Stock updated for {len(stock_updates)} products.")
+            
             return redirect("sales_list")
     else:
         sale_form = SaleForm()
@@ -128,6 +161,218 @@ def sale_detail(request, pk):
     sale = get_object_or_404(Sale, pk=pk)
     details = SaleDetail.objects.filter(sale=sale)
     return render(request, "inventory/sale_detail.html", {"sale": sale, "details": details})
+
+
+def sale_items_api(request, pk):
+    """API endpoint to get sale items"""
+    sale = get_object_or_404(Sale, pk=pk)
+    details = SaleDetail.objects.filter(sale=sale).select_related('product')
+    
+    data = {
+        'sale': {
+            'id': sale.id,
+            'receipt_no': sale.receipt_no,
+            'sale_datetime': sale.sale_datetime.strftime('%Y-%m-%d %H:%M:%S'),
+            'customer_name': f"{sale.customer.first_name} {sale.customer.last_name}" if sale.customer else "Walk-in Customer",
+            'staff_name': f"{sale.staff.first_name} {sale.staff.last_name}",
+            'total_amount': float(sale.total_amount),
+            'discount_applied': float(sale.discount_applied) if sale.discount_applied else 0,
+            'payment_method': sale.payment_method,
+        },
+        'items': [
+            {
+                'product_name': detail.product.product_name,
+                'quantity': detail.quantity_sold,
+                'unit_price': float(detail.unit_price),
+                'discount_value': float(detail.discount_value) if detail.discount_value else 0,
+                'sub_total': float(detail.sub_total) if detail.sub_total else float(detail.unit_price * detail.quantity_sold),
+                'batch_number': detail.batch_number or 'N/A',
+            }
+            for detail in details
+        ]
+    }
+    return JsonResponse(data)
+
+
+def export_sales(request):
+    """Export sales data"""
+    export_format = request.GET.get('format', 'csv')
+    
+    if export_format == 'csv':
+        return export_sales_csv(request)
+    elif export_format == 'pdf':
+        return export_sales_pdf(request)
+    else:
+        return HttpResponse("Invalid export format", status=400)
+
+
+def export_sales_csv(request):
+    """Export sales as CSV"""
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="sales_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow(['Receipt No', 'Date', 'Customer', 'Staff', 'Payment Method', 'Total Amount', 'Discount Applied', 'Items Count'])
+    
+    sales = Sale.objects.select_related('customer', 'staff').all().order_by('-sale_datetime')
+    for sale in sales:
+        writer.writerow([
+            sale.receipt_no,
+            sale.sale_datetime.strftime('%Y-%m-%d %H:%M:%S'),
+            f"{sale.customer.first_name} {sale.customer.last_name}" if sale.customer else "Walk-in Customer",
+            f"{sale.staff.first_name} {sale.staff.last_name}",
+            sale.payment_method,
+            sale.total_amount,
+            sale.discount_applied or 0,
+            sale.saledetail_set.count()
+        ])
+    
+    return response
+
+
+def export_sales_pdf(request):
+    """Export sales as PDF"""
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="sales_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=18)
+    elements = []
+    
+    styles = getSampleStyleSheet()
+    title_style = styles['Heading1']
+    elements.append(Paragraph("Sales Report", title_style))
+    elements.append(Spacer(1, 12))
+    
+    # Sales summary
+    sales = Sale.objects.all()
+    total_sales = sales.count()
+    total_revenue = sales.aggregate(total=Sum('total_amount'))['total'] or 0
+    total_discounts = sales.aggregate(total=Sum('discount_applied'))['total'] or 0
+    
+    summary_data = [
+        ['Total Sales', total_sales],
+        ['Total Revenue', f'UGx. {total_revenue:,.0f}'],
+        ['Total Discounts', f'UGx. {total_discounts:,.0f}'],
+        ['Net Revenue', f'UGx. {total_revenue - total_discounts:,.0f}'],
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[3*inch, 3*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.grey),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+        ('ALIGN',(0,0),(-1,-1),'LEFT'),
+        ('GRID',(0,0),(-1,-1),1,colors.black)
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 20))
+    
+    # Sales details
+    elements.append(Paragraph("Sales Details", styles['Heading2']))
+    elements.append(Spacer(1, 12))
+    
+    table_data = [['Receipt', 'Date', 'Customer', 'Staff', 'Payment', 'Total', 'Items']]
+    for sale in sales[:50]:  # Limit for PDF
+        table_data.append([
+            sale.receipt_no,
+            sale.sale_datetime.strftime('%Y-%m-%d'),
+            f"{sale.customer.first_name} {sale.customer.last_name}" if sale.customer else "Walk-in",
+            f"{sale.staff.first_name} {sale.staff.last_name}",
+            sale.payment_method,
+            f'UGx. {sale.total_amount:,.0f}',
+            str(sale.saledetail_set.count())
+        ])
+    
+    sales_table = Table(table_data, colWidths=[1*inch, 1*inch, 1.5*inch, 1.2*inch, 0.8*inch, 1*inch, 0.5*inch])
+    sales_table.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,0),colors.grey),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),
+        ('GRID',(0,0),(-1,-1),0.5,colors.black),
+        ('FONTSIZE', (0,0), (-1,-1), 8)
+    ]))
+    elements.append(sales_table)
+    
+    doc.build(elements)
+    pdf = buffer.getvalue()
+    buffer.close()
+    response.write(pdf)
+    return response
+
+
+def print_receipt(request, receipt_no):
+    """Generate receipt for printing"""
+    sale = get_object_or_404(Sale, receipt_no=receipt_no)
+    details = SaleDetail.objects.filter(sale=sale).select_related('product')
+    
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="receipt_{receipt_no}.pdf"'
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=18)
+    elements = []
+    
+    styles = getSampleStyleSheet()
+    
+    # Receipt header
+    elements.append(Paragraph("SUPERMARKET RECEIPT", styles['Heading1']))
+    elements.append(Paragraph(f"Receipt No: {sale.receipt_no}", styles['Normal']))
+    elements.append(Paragraph(f"Date: {sale.sale_datetime.strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    elements.append(Paragraph(f"Staff: {sale.staff.first_name} {sale.staff.last_name}", styles['Normal']))
+    if sale.customer:
+        elements.append(Paragraph(f"Customer: {sale.customer.first_name} {sale.customer.last_name}", styles['Normal']))
+    elements.append(Spacer(1, 20))
+    
+    # Items table
+    elements.append(Paragraph("Items Purchased", styles['Heading2']))
+    elements.append(Spacer(1, 12))
+    
+    table_data = [['Product', 'Qty', 'Price', 'Total']]
+    for detail in details:
+        table_data.append([
+            detail.product.product_name,
+            str(detail.quantity_sold),
+            f'UGx. {detail.unit_price:,.0f}',
+            f'UGx. {(detail.unit_price * detail.quantity_sold):,.0f}'
+        ])
+    
+    receipt_table = Table(table_data, colWidths=[3*inch, 1*inch, 1.5*inch, 1.5*inch])
+    receipt_table.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,0),colors.grey),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),
+        ('GRID',(0,0),(-1,-1),0.5,colors.black)
+    ]))
+    elements.append(receipt_table)
+    elements.append(Spacer(1, 20))
+    
+    # Totals
+    subtotal = sum(detail.unit_price * detail.quantity_sold for detail in details)
+    discount = sale.discount_applied or 0
+    total = sale.total_amount
+    
+    totals_data = [
+        ['Subtotal', f'UGx. {subtotal:,.0f}'],
+        ['Discount', f'-UGx. {discount:,.0f}'],
+        ['Total', f'UGx. {total:,.0f}']
+    ]
+    
+    totals_table = Table(totals_data, colWidths=[2*inch, 2*inch])
+    totals_table.setStyle(TableStyle([
+        ('ALIGN',(0,0),(-1,-1),'RIGHT'),
+        ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,-1), 12)
+    ]))
+    elements.append(totals_table)
+    
+    elements.append(Spacer(1, 30))
+    elements.append(Paragraph("Thank you for your business!", styles['Normal']))
+    
+    doc.build(elements)
+    pdf = buffer.getvalue()
+    buffer.close()
+    response.write(pdf)
+    return response
 
 
 # ---------------------------------------------------------
@@ -161,6 +406,16 @@ def edit_product(request, pk):
     else:
         form = ProductForm(instance=product)
     return render(request, "inventory/product_form.html", {"form": form})
+
+
+def delete_product(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+    if request.method == "POST":
+        product_name = product.product_name
+        product.delete()
+        messages.success(request, f"Product '{product_name}' has been deleted.")
+        return redirect("product_list")
+    return redirect("product_list")
 
 
 # ---------------------------------------------------------
@@ -283,8 +538,152 @@ def create_discount(request):
 
 
 def discount_list(request):
-    discounts = Discount.objects.all()
+    discounts = Discount.objects.all().order_by("-start_date")
     return render(request, "inventory/discount_list.html", {"discounts": discounts})
+
+
+def edit_discount(request, pk):
+    discount = get_object_or_404(Discount, pk=pk)
+    if request.method == "POST":
+        form = DiscountForm(request.POST, instance=discount)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Discount scheme updated successfully.")
+            return redirect("discount_list")
+    else:
+        form = DiscountForm(instance=discount)
+    return render(request, "inventory/discount_form.html", {"form": form, "discount": discount})
+
+
+def delete_discount(request, pk):
+    discount = get_object_or_404(Discount, pk=pk)
+    if request.method == "POST":
+        discount_name = discount.discount_name
+        discount.delete()
+        messages.success(request, f"Discount scheme '{discount_name}' has been deleted.")
+        return redirect("discount_list")
+    return redirect("discount_list")
+
+
+def toggle_discount_status(request, pk):
+    discount = get_object_or_404(Discount, pk=pk)
+    if request.method == "POST":
+        import json
+        data = json.loads(request.body)
+        discount.is_active = data.get('is_active', not discount.is_active)
+        discount.save()
+        return JsonResponse({'success': True, 'is_active': discount.is_active})
+    return JsonResponse({'success': False})
+
+
+def discount_details_api(request, pk):
+    discount = get_object_or_404(Discount, pk=pk)
+    data = {
+        'discount_name': discount.discount_name,
+        'discount_type': discount.discount_type,
+        'value': float(discount.value),
+        'start_date': discount.start_date.strftime('%B %d, %Y'),
+        'end_date': discount.end_date.strftime('%B %d, %Y'),
+        'is_active': discount.is_active,
+    }
+    return JsonResponse(data)
+
+
+def export_discounts(request):
+    export_format = request.GET.get('format', 'csv')
+    
+    if export_format == 'csv':
+        return export_discounts_csv(request)
+    elif export_format == 'pdf':
+        return export_discounts_pdf(request)
+    else:
+        return HttpResponse("Invalid export format", status=400)
+
+
+def export_discounts_csv(request):
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="discount_schemes_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow(['Discount Name', 'Type', 'Value', 'Start Date', 'End Date', 'Status'])
+    
+    discounts = Discount.objects.all().order_by('-start_date')
+    for discount in discounts:
+        writer.writerow([
+            discount.discount_name,
+            discount.discount_type,
+            discount.value,
+            discount.start_date.strftime('%Y-%m-%d'),
+            discount.end_date.strftime('%Y-%m-%d'),
+            'Active' if discount.is_active else 'Inactive'
+        ])
+    
+    return response
+
+
+def export_discounts_pdf(request):
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="discount_schemes_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=18)
+    elements = []
+    
+    styles = getSampleStyleSheet()
+    title_style = styles['Heading1']
+    elements.append(Paragraph("Discount Schemes Report", title_style))
+    elements.append(Spacer(1, 12))
+    
+    # Discount summary
+    discounts = Discount.objects.all().order_by('-start_date')
+    active_count = sum(1 for d in discounts if d.is_active)
+    
+    summary_data = [
+        ['Total Schemes', len(discounts)],
+        ['Active Schemes', active_count],
+        ['Inactive Schemes', len(discounts) - active_count],
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[3*inch, 3*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.grey),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+        ('ALIGN',(0,0),(-1,-1),'LEFT'),
+        ('GRID',(0,0),(-1,-1),1,colors.black)
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 20))
+    
+    # Discount details
+    elements.append(Paragraph("Discount Details", styles['Heading2']))
+    elements.append(Spacer(1, 12))
+    
+    table_data = [['Name', 'Type', 'Value', 'Start Date', 'End Date', 'Status']]
+    for discount in discounts[:50]:  # Limit for PDF
+        table_data.append([
+            discount.discount_name,
+            discount.discount_type,
+            str(discount.value),
+            discount.start_date.strftime('%Y-%m-%d'),
+            discount.end_date.strftime('%Y-%m-%d'),
+            'Active' if discount.is_active else 'Inactive'
+        ])
+    
+    discount_table = Table(table_data, colWidths=[1.5*inch, 1*inch, 1*inch, 1*inch, 1*inch, 1*inch])
+    discount_table.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,0),colors.grey),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),
+        ('GRID',(0,0),(-1,-1),0.5,colors.black),
+        ('FONTSIZE', (0,0), (-1,-1), 8)
+    ]))
+    elements.append(discount_table)
+    
+    doc.build(elements)
+    pdf = buffer.getvalue()
+    buffer.close()
+    response.write(pdf)
+    return response
 
 
 # ---------------------------------------------------------
@@ -383,7 +782,21 @@ def log_inventory(request):
     if request.method == "POST":
         form = InventoryLogForm(request.POST)
         if form.is_valid():
-            form.save()
+            inventory_log = form.save(commit=False)
+            
+            # Update product stock based on log type
+            product = inventory_log.product
+            if inventory_log.log_type == 'Purchase':
+                # Increase stock for purchases
+                product.stock_quantity += inventory_log.quantity
+                product.save()
+                messages.success(request, f"Inventory updated. Stock increased by {inventory_log.quantity} for {product.product_name}.")
+            elif inventory_log.log_type == 'Adjustment':
+                # For adjustments, we'll let the adjust_stock API handle this
+                # This is mainly for manual adjustments
+                pass
+            
+            inventory_log.save()
             messages.success(request, "Inventory log recorded.")
             return redirect("inventory_log_list")
     else:
@@ -392,8 +805,249 @@ def log_inventory(request):
 
 
 def inventory_log_list(request):
-    logs = InventoryLog.objects.all().order_by("-arrival_date")
+    logs = InventoryLog.objects.all().order_by("-log_date")
     return render(request, "inventory/inventory_log_list.html", {"logs": logs})
+
+
+def inventory_list(request):
+    """Main inventory management view"""
+    products = Product.objects.select_related('category', 'supplier').all()
+    return render(request, "inventory/inventory_list.html", {"products": products})
+
+
+def inventory_products_api(request):
+    """API endpoint to get all products with related data"""
+    products = Product.objects.select_related('category', 'supplier').all()
+    categories = Category.objects.all()
+    suppliers = Supplier.objects.all()
+    
+    data = {
+        'products': [
+            {
+                'id': p.id,
+                'product_name': p.product_name,
+                'brand': p.brand,
+                'unit': p.unit,
+                'stock_quantity': p.stock_quantity,
+                'reorder_level': p.reorder_level,
+                'unit_cost': float(p.unit_cost),
+                'retail_price': float(p.retail_price),
+                'expiry_date': p.expiry_date.strftime('%Y-%m-%d') if p.expiry_date else None,
+                'category_id': p.category.id,
+                'category_name': p.category.category_name,
+                'supplier_id': p.supplier.id,
+                'supplier_name': p.supplier.supplier_name,
+            }
+            for p in products
+        ],
+        'categories': [
+            {'id': c.id, 'name': c.category_name}
+            for c in categories
+        ],
+        'suppliers': [
+            {'id': s.id, 'name': s.supplier_name}
+            for s in suppliers
+        ]
+    }
+    return JsonResponse(data)
+
+
+def inventory_transactions_api(request):
+    """API endpoint to get recent inventory transactions"""
+    logs = InventoryLog.objects.select_related('product', 'staff').order_by('-log_date')[:50]
+    
+    data = {
+        'transactions': [
+            {
+                'id': log.id,
+                'log_date': log.log_date.strftime('%Y-%m-%d %H:%M:%S'),
+                'product_name': log.product.product_name,
+                'log_type': log.log_type,
+                'quantity': log.quantity,
+                'staff_name': f"{log.staff.first_name} {log.staff.last_name}",
+                'remarks': log.remarks,
+            }
+            for log in logs
+        ]
+    }
+    return JsonResponse(data)
+
+
+def adjust_stock(request):
+    """API endpoint to adjust product stock"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+    
+    try:
+        import json
+        data = json.loads(request.body)
+        
+        product_id = data.get('product_id')
+        adjustment_type = data.get('adjustment_type')
+        quantity = int(data.get('quantity'))
+        remarks = data.get('remarks', '')
+        
+        product = get_object_or_404(Product, pk=product_id)
+        
+        # Calculate new quantity based on adjustment type
+        if adjustment_type == 'increase':
+            new_quantity = product.stock_quantity + quantity
+        elif adjustment_type == 'decrease':
+            new_quantity = max(0, product.stock_quantity - quantity)
+        elif adjustment_type == 'set':
+            new_quantity = quantity
+        else:
+            return JsonResponse({'success': False, 'error': 'Invalid adjustment type'})
+        
+        # Create inventory log entry
+        InventoryLog.objects.create(
+            product=product,
+            staff=request.user.staff if hasattr(request.user, 'staff') else Staff.objects.first(),
+            log_type='Adjustment',
+            quantity=abs(new_quantity - product.stock_quantity),
+            remarks=f"Stock adjustment: {adjustment_type} - {remarks}"
+        )
+        
+        # Update product stock
+        product.stock_quantity = new_quantity
+        product.save()
+        
+        return JsonResponse({'success': True})
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+def product_details_api(request, pk):
+    """API endpoint to get detailed product information"""
+    product = get_object_or_404(Product, pk=pk)
+    
+    data = {
+        'id': product.id,
+        'product_name': product.product_name,
+        'brand': product.brand,
+        'unit': product.unit,
+        'stock_quantity': product.stock_quantity,
+        'reorder_level': product.reorder_level,
+        'unit_cost': float(product.unit_cost),
+        'retail_price': float(product.retail_price),
+        'expiry_date': product.expiry_date.strftime('%Y-%m-%d') if product.expiry_date else None,
+        'category_name': product.category.category_name,
+        'supplier_name': product.supplier.supplier_name,
+    }
+    return JsonResponse(data)
+
+
+def export_inventory(request):
+    """Export inventory data"""
+    export_format = request.GET.get('format', 'csv')
+    
+    if export_format == 'csv':
+        return export_inventory_csv(request)
+    elif export_format == 'pdf':
+        return export_inventory_pdf(request)
+    else:
+        return HttpResponse("Invalid export format", status=400)
+
+
+def export_inventory_csv(request):
+    """Export inventory as CSV"""
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="inventory_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow(['Product Name', 'Brand', 'Category', 'Supplier', 'Current Stock', 'Reorder Level', 'Unit Cost', 'Retail Price', 'Expiry Date', 'Status'])
+    
+    products = Product.objects.select_related('category', 'supplier').all()
+    for product in products:
+        status = 'Out of Stock' if product.stock_quantity == 0 else 'Low Stock' if product.stock_quantity <= product.reorder_level else 'In Stock'
+        
+        writer.writerow([
+            product.product_name,
+            product.brand or '',
+            product.category.category_name,
+            product.supplier.supplier_name,
+            product.stock_quantity,
+            product.reorder_level,
+            product.unit_cost,
+            product.retail_price,
+            product.expiry_date.strftime('%Y-%m-%d') if product.expiry_date else '',
+            status
+        ])
+    
+    return response
+
+
+def export_inventory_pdf(request):
+    """Export inventory as PDF"""
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="inventory_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=18)
+    elements = []
+    
+    styles = getSampleStyleSheet()
+    title_style = styles['Heading1']
+    elements.append(Paragraph("Inventory Report", title_style))
+    elements.append(Spacer(1, 12))
+    
+    # Inventory summary
+    products = Product.objects.select_related('category', 'supplier').all()
+    total_products = products.count()
+    in_stock = sum(1 for p in products if p.stock_quantity > p.reorder_level)
+    low_stock = sum(1 for p in products if p.stock_quantity <= p.reorder_level and p.stock_quantity > 0)
+    out_of_stock = sum(1 for p in products if p.stock_quantity == 0)
+    
+    summary_data = [
+        ['Total Products', total_products],
+        ['In Stock', in_stock],
+        ['Low Stock', low_stock],
+        ['Out of Stock', out_of_stock],
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[3*inch, 3*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.grey),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+        ('ALIGN',(0,0),(-1,-1),'LEFT'),
+        ('GRID',(0,0),(-1,-1),1,colors.black)
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 20))
+    
+    # Inventory details
+    elements.append(Paragraph("Inventory Details", styles['Heading2']))
+    elements.append(Spacer(1, 12))
+    
+    table_data = [['Product', 'Category', 'Stock', 'Reorder Level', 'Unit Cost', 'Retail Price', 'Status']]
+    for product in products[:50]:  # Limit for PDF
+        status = 'Out of Stock' if product.stock_quantity == 0 else 'Low Stock' if product.stock_quantity <= product.reorder_level else 'In Stock'
+        table_data.append([
+            product.product_name,
+            product.category.category_name,
+            str(product.stock_quantity),
+            str(product.reorder_level),
+            f'UGx. {product.unit_cost:,.0f}',
+            f'UGx. {product.retail_price:,.0f}',
+            status
+        ])
+    
+    inventory_table = Table(table_data, colWidths=[1.5*inch, 1.2*inch, 0.8*inch, 1*inch, 1*inch, 1*inch, 1*inch])
+    inventory_table.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,0),colors.grey),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),
+        ('GRID',(0,0),(-1,-1),0.5,colors.black),
+        ('FONTSIZE', (0,0), (-1,-1), 8)
+    ]))
+    elements.append(inventory_table)
+    
+    doc.build(elements)
+    pdf = buffer.getvalue()
+    buffer.close()
+    response.write(pdf)
+    return response
 
 
 # ---------------------------------------------------------
@@ -412,8 +1066,150 @@ def create_payroll(request):
 
 
 def payroll_list(request):
-    payrolls = Payroll.objects.all().order_by("-payment_date")
+    payrolls = Payroll.objects.select_related('staff').order_by("-payment_date")
     return render(request, "inventory/payroll_list.html", {"payrolls": payrolls})
+
+
+def edit_payroll(request, pk):
+    payroll = get_object_or_404(Payroll, pk=pk)
+    if request.method == "POST":
+        form = PayrollForm(request.POST, instance=payroll)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Payroll record updated successfully.")
+            return redirect("payroll_list")
+    else:
+        form = PayrollForm(instance=payroll)
+    return render(request, "inventory/payroll_form.html", {"form": form, "payroll": payroll})
+
+
+def delete_payroll(request, pk):
+    payroll = get_object_or_404(Payroll, pk=pk)
+    if request.method == "POST":
+        staff_name = f"{payroll.staff.first_name} {payroll.staff.last_name}"
+        payroll.delete()
+        messages.success(request, f"Payroll record for {staff_name} has been deleted.")
+        return redirect("payroll_list")
+    return redirect("payroll_list")
+
+
+def payroll_details_api(request, pk):
+    payroll = get_object_or_404(Payroll, pk=pk)
+    data = {
+        'staff_name': f"{payroll.staff.first_name} {payroll.staff.last_name}",
+        'staff_position': payroll.staff.position,
+        'staff_department': getattr(payroll.staff, 'department', None),
+        'payment_date': payroll.payment_date.strftime('%B %d, %Y'),
+        'payment_method': payroll.payment_method,
+        'basic_salary': float(payroll.basic_salary),
+        'allowances': float(payroll.allowances) if payroll.allowances else 0,
+        'deductions': float(payroll.deductions) if payroll.deductions else 0,
+        'net_salary': float(payroll.net_salary),
+    }
+    return JsonResponse(data)
+
+
+def export_payroll(request):
+    export_format = request.GET.get('format', 'csv')
+    
+    if export_format == 'csv':
+        return export_payroll_csv(request)
+    elif export_format == 'pdf':
+        return export_payroll_pdf(request)
+    else:
+        return HttpResponse("Invalid export format", status=400)
+
+
+def export_payroll_csv(request):
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="payroll_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow(['Staff Name', 'Position', 'Payment Date', 'Basic Salary', 'Allowances', 'Deductions', 'Net Salary', 'Payment Method'])
+    
+    payrolls = Payroll.objects.select_related('staff').order_by('-payment_date')
+    for payroll in payrolls:
+        writer.writerow([
+            f"{payroll.staff.first_name} {payroll.staff.last_name}",
+            payroll.staff.position,
+            payroll.payment_date.strftime('%Y-%m-%d'),
+            payroll.basic_salary,
+            payroll.allowances or 0,
+            payroll.deductions or 0,
+            payroll.net_salary,
+            payroll.payment_method
+        ])
+    
+    return response
+
+
+def export_payroll_pdf(request):
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="payroll_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=18)
+    elements = []
+    
+    styles = getSampleStyleSheet()
+    title_style = styles['Heading1']
+    elements.append(Paragraph("Payroll Report", title_style))
+    elements.append(Spacer(1, 12))
+    
+    # Payroll summary
+    payrolls = Payroll.objects.select_related('staff').order_by('-payment_date')
+    total_net = sum(p.net_salary for p in payrolls)
+    total_deductions = sum(p.deductions or 0 for p in payrolls)
+    total_allowances = sum(p.allowances or 0 for p in payrolls)
+    
+    summary_data = [
+        ['Total Records', len(payrolls)],
+        ['Total Net Salary', f'UGx. {total_net:,.0f}'],
+        ['Total Allowances', f'UGx. {total_allowances:,.0f}'],
+        ['Total Deductions', f'UGx. {total_deductions:,.0f}'],
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[3*inch, 3*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.grey),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+        ('ALIGN',(0,0),(-1,-1),'LEFT'),
+        ('GRID',(0,0),(-1,-1),1,colors.black)
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 20))
+    
+    # Payroll details
+    elements.append(Paragraph("Payroll Details", styles['Heading2']))
+    elements.append(Spacer(1, 12))
+    
+    table_data = [['Staff Name', 'Position', 'Payment Date', 'Basic Salary', 'Allowances', 'Deductions', 'Net Salary']]
+    for payroll in payrolls[:50]:  # Limit for PDF
+        table_data.append([
+            f"{payroll.staff.first_name} {payroll.staff.last_name}",
+            payroll.staff.position,
+            payroll.payment_date.strftime('%Y-%m-%d'),
+            f'UGx. {payroll.basic_salary:,.0f}',
+            f'UGx. {(payroll.allowances or 0):,.0f}',
+            f'UGx. {(payroll.deductions or 0):,.0f}',
+            f'UGx. {payroll.net_salary:,.0f}'
+        ])
+    
+    payroll_table = Table(table_data, colWidths=[1.5*inch, 1.2*inch, 1*inch, 1*inch, 1*inch, 1*inch, 1.2*inch])
+    payroll_table.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,0),colors.grey),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),
+        ('GRID',(0,0),(-1,-1),0.5,colors.black),
+        ('FONTSIZE', (0,0), (-1,-1), 8)
+    ]))
+    elements.append(payroll_table)
+    
+    doc.build(elements)
+    pdf = buffer.getvalue()
+    buffer.close()
+    response.write(pdf)
+    return response
 
 
 
@@ -487,40 +1283,39 @@ def reports_view(request):
     }
     return render(request, 'inventory/reports.html', context)
 
+
+
 def sales_by_year_api(request):
     """Return total sales grouped by year."""
     date_filters = get_date_filters(request)
-    
-    # Base queryset
     sales_qs = Sale.objects.all()
     if 'start' in date_filters:
         sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
     if 'end' in date_filters:
         sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
-    
+
     data = (
         sales_qs
-        .annotate(year=ExtractYear('sale_datetime'))
-        .values('year')
+        .annotate(period=TruncDate('sale_datetime'))
+        .values('period')
         .annotate(total=Sum('total_amount', output_field=FloatField()))
-        .order_by('year')
+        .order_by('period')
     )
-    labels = [d['year'] for d in data]
+    labels = [d['period'].strftime('%Y-%m-%d') for d in data if d['period']]
     values = [float(d['total'] or 0) for d in data]
     return JsonResponse({'labels': labels, 'data': values})
 
 
 def sales_by_category_api(request):
-    """Return total sales grouped by product category."""
+    """Return total sales grouped by product category (no date axis needed)."""
     date_filters = get_date_filters(request)
-    
-    # Base queryset - filter by sale date
+
     sale_details_qs = SaleDetail.objects.all()
     if 'start' in date_filters:
         sale_details_qs = sale_details_qs.filter(sale__sale_datetime__gte=date_filters['start'])
     if 'end' in date_filters:
         sale_details_qs = sale_details_qs.filter(sale__sale_datetime__lte=date_filters['end'])
-    
+
     data = (
         sale_details_qs
         .values('product__category__category_name')
@@ -533,27 +1328,49 @@ def sales_by_category_api(request):
 
 
 def sales_by_quarter_api(request):
-    """Return quarterly sales totals for each year."""
+    """Return quarterly sales totals, grouping by year and quarter, and generating quarter start date label."""
     date_filters = get_date_filters(request)
-    
-    # Base queryset
     sales_qs = Sale.objects.all()
     if 'start' in date_filters:
         sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
     if 'end' in date_filters:
         sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
-    
+
     data = (
         sales_qs
+        # Group by year and quarter
         .annotate(year=ExtractYear('sale_datetime'), quarter=ExtractQuarter('sale_datetime'))
         .values('year', 'quarter')
         .annotate(total=Sum('total_amount', output_field=FloatField()))
         .order_by('year', 'quarter')
     )
-    labels = [f"Q{d['quarter']} {d['year']}" for d in data]
-    values = [float(d['total'] or 0) for d in data]
-    return JsonResponse({'labels': labels, 'data': values})
+    
+    labels = []
+    values = []
+    
+    # Manually construct the quarter start date (YYYY-MM-DD)
+    # The start month for quarters are 1 (Q1), 4 (Q2), 7 (Q3), 10 (Q4)
+    q_start_months = {1: 1, 2: 4, 3: 7, 4: 10}
+    
+    for d in data:
+        year = d.get('year')
+        quarter = d.get('quarter')
+        total = d.get('total', 0)
 
+        if year and quarter:
+            # Get the starting month for the quarter
+            start_month = q_start_months.get(quarter)
+            if start_month is not None:
+                try:
+                    # Create a date object for the first day of that quarter
+                    quarter_start_date = datetime.date(year, start_month, 1)
+                    labels.append(quarter_start_date.strftime('%Y-%m-%d'))
+                    values.append(float(total))
+                except ValueError:
+                    # Handle cases where year/month might be invalid (unlikely)
+                    continue
+
+    return JsonResponse({'labels': labels, 'data': values})
 
 def sales_histogram_api(request):
     """Return histogram-like data for sales frequency distribution."""
@@ -1207,3 +2024,106 @@ def export_table_excel(request):
     wb.save(response)
     
     return response
+
+
+# ---------------------------------------------------------
+# DISCOUNT AUTO-APPLICATION LOGIC
+# ---------------------------------------------------------
+
+def get_applicable_discounts(sale_total=None, sale_date=None):
+    """
+    Get all applicable discounts for a sale.
+    This function can be called when creating sales to automatically apply discounts.
+    """
+    if sale_date is None:
+        sale_date = now().date()
+    
+    # Get active discounts that are valid for the given date
+    applicable_discounts = Discount.objects.filter(
+        is_active=True,
+        start_date__lte=sale_date,
+        end_date__gte=sale_date
+    ).order_by('-value')  # Apply highest value discounts first
+    
+    # If sale_total is provided, filter by minimum amount requirements
+    if sale_total is not None:
+        # For now, we'll apply all applicable discounts
+        # In a more complex system, you might have minimum purchase requirements
+        pass
+    
+    return applicable_discounts
+
+
+def calculate_discount_amount(discount, sale_total):
+    """
+    Calculate the discount amount based on discount type and sale total.
+    """
+    if discount.discount_type == 'Percentage':
+        return Decimal(str(sale_total)) * (discount.value / 100)
+    elif discount.discount_type == 'Fixed':
+        return min(discount.value, Decimal(str(sale_total)))  # Can't discount more than sale total
+    elif discount.discount_type == 'BOGO':
+        # For BOGO, this is a simplified implementation
+        # In a real system, you'd need to track individual items
+        return Decimal(str(sale_total)) * (discount.value / (discount.value + 1))
+    else:
+        return Decimal('0')
+
+
+def apply_automatic_discounts(sale_instance):
+    """
+    Apply automatic discounts to a sale instance.
+    This should be called after creating a sale but before saving.
+    """
+    sale_total = float(sale_instance.total_amount)
+    sale_date = sale_instance.sale_datetime.date()
+    
+    applicable_discounts = get_applicable_discounts(sale_total, sale_date)
+    
+    total_discount_amount = Decimal('0')
+    applied_discounts = []
+    
+    for discount in applicable_discounts:
+        discount_amount = calculate_discount_amount(discount, sale_total)
+        
+        # Apply discount if it's meaningful (more than 0)
+        if discount_amount > 0:
+            total_discount_amount += discount_amount
+            applied_discounts.append({
+                'discount': discount,
+                'amount': discount_amount
+            })
+            
+            # Prevent over-discounting
+            if total_discount_amount >= Decimal(str(sale_total)):
+                total_discount_amount = Decimal(str(sale_total))
+                break
+    
+    # Update sale total with discount applied
+    if total_discount_amount > 0:
+        new_total = Decimal(str(sale_total)) - total_discount_amount
+        sale_instance.total_amount = new_total
+        sale_instance.save()
+        
+        # Store applied discounts (you might want to create a SaleDiscount model for this)
+        return {
+            'original_total': sale_total,
+            'discount_amount': float(total_discount_amount),
+            'new_total': float(new_total),
+            'applied_discounts': applied_discounts
+        }
+    
+    return None
+
+
+def staff_info_api(request, pk):
+    """API endpoint to get staff information for payroll form"""
+    staff = get_object_or_404(Staff, pk=pk)
+    data = {
+        'first_name': staff.first_name,
+        'last_name': staff.last_name,
+        'position': staff.position,
+        'phone': staff.phone,
+        'department': getattr(staff, 'department', None),
+    }
+    return JsonResponse(data)

@@ -178,8 +178,19 @@
   </div>
 </div>
 
-<!-- Chart.js -->
+
+<!-- Chart.js (v3+ or v4+) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+
+<!-- Luxon (peer for the adapter) -->
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
+
+<!-- Chart.js adapter for Luxon -->
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.4.0/dist/chartjs-adapter-luxon.min.js"></script>
+
+<!-- Chart.js with time adapter -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 <!-- Font Awesome for icons -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
@@ -318,6 +329,10 @@ async function updateKPIs() {
   }
 }
 
+function makePoints(labels, values){
+  return labels.map((lab, i) => ({ x: lab, y: values[i] }));
+}
+
 async function loadSalesData() {
   try {
     const res = await fetchWithTimeout("{% url 'sales_by_year_api' %}" + dateQuery(), { timeout: 15000 });
@@ -327,10 +342,75 @@ async function loadSalesData() {
     const ctx = document.getElementById('salesTrendChart').getContext('2d');
     if (charts.salesTrend) charts.salesTrend.destroy();
 
+    // map labels+data into [{x: '2025-05-01', y: 123}, ...]
+    const points = makePoints(payload.labels, payload.data);
+
     charts.salesTrend = new Chart(ctx, {
       type: currentChartType,
-      data: { labels: payload.labels, datasets: [{ label: 'Total Sales', data: payload.data, borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.12)', fill:true, tension:0.3 }] },
-      options: { responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true, ticks:{ callback: v => 'UGx. ' + Number(v).toLocaleString() } } } }
+      data: {
+        // use a single dataset with explicit x/y points
+        datasets: [{
+          label: 'Total Sales',
+          data: points,
+          borderColor: '#0d6efd',
+          backgroundColor: 'rgba(13,110,253,0.12)',
+          fill: true,
+          tension: 0.3,
+          parsing: false // we already provide x,y
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              // your server returns ISO YYYY-MM-DD strings — the adapter will parse them.
+              // force granularity if you want yearly/monthly/day ticks:
+              unit: 'day', // change to 'month' or 'year' depending on your dataset
+              displayFormats: {
+                day: 'MMM dd',
+                month: 'MMM yyyy',
+                year: 'yyyy'
+              }
+            },
+            title: { display: true, text: 'Date' }
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { callback: v => 'UGx. ' + Number(v).toLocaleString() },
+            title: { display: true, text: 'Sales Amount' }
+          }
+        },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: ctx => `UGx. ${Number(ctx.formattedValue).toLocaleString()}`
+            }
+          },
+          // *** ADDED: Zoom Plugin Configuration for Scrolling/Zooming ***
+          zoom: {
+            zoom: {
+              wheel: { enabled: true }, // Enable zoom via mouse wheel
+              pinch: { enabled: true }, // Enable zoom via pinch/touch
+              mode: 'x', // Only zoom on the X-axis (time)
+            },
+            pan: {
+              enabled: true, // Enable panning (scrolling)
+              mode: 'x', // Only pan on the X-axis (time)
+              // Optional: limits on how far you can pan out
+              // limits: {
+              //     min: 'original',
+              //     max: 'original'
+              // }
+            },
+            // Double-click to reset the zoom/pan
+            doubleClick: true
+          }
+          // *** END ADDED ***
+        }
+      }
     });
   } catch (err) {
     console.error('loadSalesData error', err);
@@ -356,6 +436,8 @@ async function loadCategoryData() {
   }
 }
 
+// ... loadCategoryData (no change needed)
+
 async function loadQuarterlyData() {
   try {
     const res = await fetchWithTimeout("{% url 'sales_by_quarter_api' %}" + dateQuery(), { timeout: 15000 });
@@ -365,10 +447,71 @@ async function loadQuarterlyData() {
     const ctx = document.getElementById('quarterlyChart').getContext('2d');
     if (charts.quarterly) charts.quarterly.destroy();
 
+    // The backend uses custom labels like '2025-Q1', but the frontend expects date-like
+    // points. The `makePoints` function needs to be able to handle this.
+    // NOTE: The current backend returns '2025-Q1', which Chart.js time scale won't parse directly.
+    // For the quarterly chart to use the 'time' scale, your `sales_by_quarter_api`
+    // should return **quarter start dates** (e.g., '2025-01-01', '2025-04-01', etc.)
+    // as suggested by the original comment:
+    // `// quarterly labels are like "2025-04-01" (quarter start) from Django`
+    
+    // Assuming you update your backend to return quarter start dates:
+    const points = makePoints(payload.labels, payload.data);
+
     charts.quarterly = new Chart(ctx, {
       type: 'bar',
-      data: { labels: payload.labels, datasets: [{ label:'Quarterly Sales', data: payload.data }] },
-      options: { responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } }
+      data: {
+        datasets: [{
+          label: 'Quarterly Sales',
+          data: points,
+          backgroundColor: 'rgba(40,167,69,0.8)',
+          borderColor: '#28a745',
+          borderWidth: 1,
+          parsing: false
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              // With quarter start dates (e.g., '2025-01-01'), Chart.js will display the quarter.
+              parser: 'yyyy-MM-dd',
+              unit: 'quarter', // Correctly groups data by quarter
+              displayFormats: {
+                quarter: 'QQQ yyyy',
+                month: 'MMM yyyy'
+              }
+            },
+            title: { display: true, text: 'Quarter' }
+          },
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: 'Sales Amount' },
+            ticks: { callback: v => 'UGx. ' + Number(v).toLocaleString() }
+          }
+        },
+        // offset bars so they line up on time scale nicely
+        datasets: { bar: { categoryPercentage: 0.8, barPercentage: 0.9 } },
+        plugins: {
+          // *** ADDED: Zoom Plugin Configuration for Scrolling/Zooming ***
+          zoom: {
+            zoom: {
+              wheel: { enabled: true },
+              pinch: { enabled: true },
+              mode: 'x',
+            },
+            pan: {
+              enabled: true,
+              mode: 'x',
+            },
+            doubleClick: true
+          }
+          // *** END ADDED ***
+        }
+      }
     });
   } catch (err) {
     console.error('loadQuarterlyData error', err);
