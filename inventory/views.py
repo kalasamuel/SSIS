@@ -11,7 +11,7 @@ from .models import (
 )
 from .forms import (
     SaleForm, SaleDetailForm, SaleDetailFormSet, ProductForm, SupplierForm,
-    CategoryForm, CustomerForm, SaffForm, DiscountForm, PurchaseOrderForm,
+    CategoryForm, CustomerForm, StaffForm, DiscountForm, PurchaseOrderForm,
     PurchaseOrderDetailForm, InventoryLogForm, PayrollForm
 )
 
@@ -509,13 +509,13 @@ def edit_customer(request, pk):
 # ---------------------------------------------------------
 def create_staff(request):
     if request.method == "POST":
-        form = SaffForm(request.POST)
+        form = StaffForm(request.POST)
         if form.is_valid():
             form.save()
             messages.success(request, "Staff added successfully.")
             return redirect("staff_list")
     else:
-        form = SaffForm()
+        form = StaffForm()
     return render(request, "inventory/staff_form.html", {"form": form})
 
 
@@ -1298,7 +1298,7 @@ def sales_by_year_api(request):
 
     data = (
         sales_qs
-        .annotate(period=TruncDate('sale_datetime'))
+        .annotate(period=TruncDay('sale_datetime'))
         .values('period')
         .annotate(total=Sum('total_amount', output_field=FloatField()))
         .order_by('period')
@@ -1514,55 +1514,96 @@ def sales_table_data_api(request):
 def financial_report_api(request):
     start = request.GET.get('start')
     end = request.GET.get('end')
-    group_by = request.GET.get('group_by', 'day')  # default grouping
+    group_by = request.GET.get('group_by', 'day')
 
-    # Choose correct grouping function on sale_datetime
-    group_func = {
+    # Grouping functions for Sale queryset 
+    group_sale = {
         'day': TruncDay('sale_datetime'),
         'week': TruncWeek('sale_datetime'),
         'month': TruncMonth('sale_datetime'),
         'quarter': TruncQuarter('sale_datetime'),
     }.get(group_by, TruncDay('sale_datetime'))
 
-    # GROSS SALES
-    gross_sales = Sale.objects.filter(sale_datetime__date__range=[start, end]) \
-        .annotate(period=group_func) \
-        .values('period') \
-        .annotate(value=Sum('total_amount')).order_by('period')
+    # Grouping functions for SaleDetail queryset 
+    group_saledetail = {
+        'day': TruncDay('sale__sale_datetime'),
+        'week': TruncWeek('sale__sale_datetime'),
+        'month': TruncMonth('sale__sale_datetime'),
+        'quarter': TruncQuarter('sale__sale_datetime'),
+    }.get(group_by, TruncDay('sale__sale_datetime'))
 
-    # COGS
-    cogs = SaleDetail.objects.filter(sale__sale_datetime__date__range=[start, end]) \
-        .annotate(period=group_func) \
-        .values('period') \
-        .annotate(value=Sum(F('quantity_sold') * F('product__unit_cost')))
+    # ---------- GROSS SALES ----------
+    gross_sales = (
+        Sale.objects.filter(sale_datetime__date__range=[start, end])
+        .annotate(period=group_sale)
+        .values('period')
+        .annotate(value=Sum('total_amount'))
+        .order_by('period')
+    )
 
-    # PAYROLL (Payroll model already uses correct field name `date`)
-    payroll_expenses = Payroll.objects.filter(date__range=[start, end]) \
-        .annotate(period=TruncMonth('date') if group_by == 'month' else TruncDay('date')) \
-        .values('period') \
+    # ---------- COGS ----------
+    cogs = (
+        SaleDetail.objects.filter(sale__sale_datetime__date__range=[start, end])
+        .annotate(period=group_saledetail)
+        .values('period')
+        .annotate(
+            value=Sum(
+                F('quantity_sold') * F('product__unit_cost'),
+                output_field=DecimalField(max_digits=18, decimal_places=2)
+            )
+        )
+        .order_by('period')
+    )
+
+    # ---------- PAYROLL  -------------
+    payroll_group = {
+        'day': TruncDay('payment_date'),
+        'week': TruncWeek('payment_date'),
+        'month': TruncMonth('payment_date'),
+        'quarter': TruncQuarter('payment_date'),
+    }.get(group_by, TruncDay('payment_date'))
+
+    payroll_expenses = (
+        Payroll.objects.filter(payment_date__range=[start, end])
+        .annotate(period=payroll_group)
+        .values('period')
         .annotate(value=Sum('net_salary'))
+        .order_by('period')
+    )
 
-    # EXPIRY LOSSES
-    expiry_losses = InventoryLog.objects.filter(
-        date__range=[start, end],
-        remarks__icontains='expiry_writeoff'
-    ).annotate(period=TruncMonth('date') if group_by == 'month' else TruncDay('date')) \
-     .values('period') \
-     .annotate(value=Sum(F('quantity') * F('product__unit_cost')))
+    # ---------- EXPIRY LOSSES----------
+    expiry_group = payroll_group  
+    expiry_losses = (
+        InventoryLog.objects.filter(
+            log_date__range=[start, end],
+            remarks__icontains='expiry_writeoff'
+        )
+        .annotate(period=expiry_group)
+        .values('period')
+        .annotate(
+            value=Sum(
+                F('quantity') * F('product__unit_cost'),
+                output_field=DecimalField(max_digits=18, decimal_places=2)
+            )
+        )
+        .order_by('period')
+    )
 
-    # TAXES 
-    taxes = Sale.objects.filter(sale_datetime__date__range=[start, end]) \
-        .annotate(period=group_func) \
-        .values('period') \
+    # ---------- TAXES ----------
+    taxes = (
+        Sale.objects.filter(sale_datetime__date__range=[start, end])
+        .annotate(period=group_sale)
+        .values('period')
         .annotate(value=Sum('tax_amount'))
+        .order_by('period')
+    )
 
-    # Return structured data
     return JsonResponse({
         'gross_sales': list(gross_sales),
         'cogs': list(cogs),
         'payroll_expenses': list(payroll_expenses),
         'expiry_losses': list(expiry_losses),
-        'taxes': list(taxes)
+        'taxes': list(taxes),
     })
 
 # ---------------------------------------------------------
