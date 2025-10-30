@@ -1,0 +1,341 @@
+{% extends 'inventory/base.html' %}
+{% block title %}{% if payroll %}Edit{% else %}Add{% endif %} Payroll Record - Supermarket DBMS{% endblock %}
+{% block content %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2>{% if payroll %}Edit{% else %}Add{% endif %} Payroll Record</h2>
+    <p class="text-muted mb-0">{% if payroll %}Update payroll information for {{ payroll.staff.first_name }} {{ payroll.staff.last_name }}{% else %}Create a new payroll record{% endif %}</p>
+  </div>
+  <a href="{% url 'payroll_list' %}" class="btn btn-outline-secondary">
+    <i class="fas fa-arrow-left me-2"></i>Back to Payroll List
+  </a>
+</div>
+
+<!-- Payroll Form -->
+<div class="row">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">Payroll Information</h5>
+      </div>
+      <div class="card-body">
+        <form method="post" id="payrollForm">
+          {% csrf_token %}
+          
+          <!-- Staff Selection -->
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label for="{{ form.staff.id_for_label }}" class="form-label">
+                <i class="fas fa-user me-2"></i>Staff Member <span class="text-danger">*</span>
+              </label>
+              {{ form.staff }}
+              {% if form.staff.errors %}
+                <div class="text-danger small mt-1">{{ form.staff.errors.0 }}</div>
+              {% endif %}
+            </div>
+            <div class="col-md-6">
+              <label for="{{ form.payment_date.id_for_label }}" class="form-label">
+                <i class="fas fa-calendar me-2"></i>Payment Date <span class="text-danger">*</span>
+              </label>
+              {{ form.payment_date }}
+              {% if form.payment_date.errors %}
+                <div class="text-danger small mt-1">{{ form.payment_date.errors.0 }}</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Salary Information -->
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label for="{{ form.basic_salary.id_for_label }}" class="form-label">
+                <i class="fas fa-money-bill-wave me-2"></i>Basic Salary <span class="text-danger">*</span>
+              </label>
+              <div class="input-group">
+                <span class="input-group-text">UGx.</span>
+                {{ form.basic_salary }}
+              </div>
+              {% if form.basic_salary.errors %}
+                <div class="text-danger small mt-1">{{ form.basic_salary.errors.0 }}</div>
+              {% endif %}
+            </div>
+            <div class="col-md-6">
+              <label for="{{ form.payment_method.id_for_label }}" class="form-label">
+                <i class="fas fa-credit-card me-2"></i>Payment Method <span class="text-danger">*</span>
+              </label>
+              {{ form.payment_method }}
+              {% if form.payment_method.errors %}
+                <div class="text-danger small mt-1">{{ form.payment_method.errors.0 }}</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Allowances and Deductions -->
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label for="{{ form.allowances.id_for_label }}" class="form-label">
+                <i class="fas fa-plus-circle me-2 text-success"></i>Allowances
+              </label>
+              <div class="input-group">
+                <span class="input-group-text">UGx.</span>
+                {{ form.allowances }}
+              </div>
+              {% if form.allowances.errors %}
+                <div class="text-danger small mt-1">{{ form.allowances.errors.0 }}</div>
+              {% endif %}
+              <small class="form-text text-muted">Bonuses, overtime, benefits, etc.</small>
+            </div>
+            <div class="col-md-6">
+              <label for="{{ form.deductions.id_for_label }}" class="form-label">
+                <i class="fas fa-minus-circle me-2 text-danger"></i>Deductions
+              </label>
+              <div class="input-group">
+                <span class="input-group-text">UGx.</span>
+                {{ form.deductions }}
+              </div>
+              {% if form.deductions.errors %}
+                <div class="text-danger small mt-1">{{ form.deductions.errors.0 }}</div>
+              {% endif %}
+              <small class="form-text text-muted">Tax, insurance, loans, etc.</small>
+            </div>
+          </div>
+
+          <!-- Net Salary Display -->
+          <div class="row mb-4">
+            <div class="col-md-6">
+              <label for="{{ form.net_salary.id_for_label }}" class="form-label">
+                <i class="fas fa-calculator me-2 text-primary"></i>Net Salary
+              </label>
+              <div class="input-group">
+                <span class="input-group-text">UGx.</span>
+                {{ form.net_salary }}
+              </div>
+              {% if form.net_salary.errors %}
+                <div class="text-danger small mt-1">{{ form.net_salary.errors.0 }}</div>
+              {% endif %}
+              <small class="form-text text-primary"><strong>Calculated automatically</strong></small>
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+              <div class="alert alert-info w-100 mb-0">
+                <i class="fas fa-info-circle me-2"></i>
+                <strong>Formula:</strong> Net Salary = Basic Salary + Allowances - Deductions
+              </div>
+            </div>
+          </div>
+
+          <!-- Form Actions -->
+          <div class="d-flex justify-content-between">
+            <a href="{% url 'payroll_list' %}" class="btn btn-secondary">
+              <i class="fas fa-times me-2"></i>Cancel
+            </a>
+            <button type="submit" class="btn btn-primary">
+              <i class="fas fa-save me-2"></i>{% if payroll %}Update{% else %}Save{% endif %} Payroll Record
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Calculation Summary -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">Salary Calculation</h5>
+      </div>
+      <div class="card-body">
+        <div class="calculation-summary">
+          <div class="d-flex justify-content-between mb-2">
+            <span>Basic Salary:</span>
+            <span id="displayBasic">UGx. 0</span>
+          </div>
+          <div class="d-flex justify-content-between mb-2 text-success">
+            <span>Allowances:</span>
+            <span id="displayAllowances">UGx. 0</span>
+          </div>
+          <div class="d-flex justify-content-between mb-2 text-danger">
+            <span>Deductions:</span>
+            <span id="displayDeductions">UGx. 0</span>
+          </div>
+          <hr>
+          <div class="d-flex justify-content-between fw-bold text-primary">
+            <span>Net Salary:</span>
+            <span id="displayNet">UGx. 0</span>
+          </div>
+        </div>
+        
+        <!-- Quick Calculation Helper -->
+        <div class="mt-4">
+          <h6>Quick Calculator</h6>
+          <div class="input-group mb-2">
+            <span class="input-group-text">Basic:</span>
+            <input type="number" class="form-control" id="quickBasic" placeholder="0" min="0" step="0.01">
+          </div>
+          <div class="input-group mb-2">
+            <span class="input-group-text">Allowances:</span>
+            <input type="number" class="form-control" id="quickAllowances" placeholder="0" min="0" step="0.01">
+          </div>
+          <div class="input-group mb-3">
+            <span class="input-group-text">Deductions:</span>
+            <input type="number" class="form-control" id="quickDeductions" placeholder="0" min="0" step="0.01">
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="applyQuickCalc()">
+            <i class="fas fa-calculator me-1"></i>Apply to Form
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Staff Information Card -->
+    <div class="card mt-3">
+      <div class="card-header">
+        <h5 class="mb-0">Selected Staff</h5>
+      </div>
+      <div class="card-body" id="staffInfo">
+        <div class="text-muted text-center">
+          <i class="fas fa-user fa-2x mb-2"></i>
+          <p>Select a staff member to view details</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Font Awesome for icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+<script>
+// Real-time calculation
+function calculateNetSalary() {
+  const basicSalary = parseFloat(document.getElementById('id_basic_salary').value) || 0;
+  const allowances = parseFloat(document.getElementById('id_allowances').value) || 0;
+  const deductions = parseFloat(document.getElementById('id_deductions').value) || 0;
+  
+  const netSalary = Math.max(0, basicSalary + allowances - deductions);
+  
+  // Update form field
+  document.getElementById('id_net_salary').value = netSalary.toFixed(2);
+  
+  // Update display
+  document.getElementById('displayBasic').textContent = 'UGx. ' + basicSalary.toLocaleString();
+  document.getElementById('displayAllowances').textContent = 'UGx. ' + allowances.toLocaleString();
+  document.getElementById('displayDeductions').textContent = 'UGx. ' + deductions.toLocaleString();
+  document.getElementById('displayNet').textContent = 'UGx. ' + netSalary.toLocaleString();
+}
+
+// Quick calculator
+function applyQuickCalc() {
+  const quickBasic = parseFloat(document.getElementById('quickBasic').value) || 0;
+  const quickAllowances = parseFloat(document.getElementById('quickAllowances').value) || 0;
+  const quickDeductions = parseFloat(document.getElementById('quickDeductions').value) || 0;
+  
+  document.getElementById('id_basic_salary').value = quickBasic;
+  document.getElementById('id_allowances').value = quickAllowances;
+  document.getElementById('id_deductions').value = quickDeductions;
+  
+  calculateNetSalary();
+}
+
+// Staff information display
+function loadStaffInfo(staffId) {
+  if (staffId) {
+    fetch(`/staff/info/${staffId}/`)
+      .then(response => response.json())
+      .then(data => {
+        document.getElementById('staffInfo').innerHTML = `
+          <div class="text-center">
+            <div class="avatar-lg bg-primary rounded-circle d-inline-flex align-items-center justify-content-center mb-2">
+              <i class="fas fa-user fa-2x text-white"></i>
+            </div>
+            <h6>${data.first_name} ${data.last_name}</h6>
+            <p class="text-muted mb-1">${data.position}</p>
+            <p class="text-muted mb-0">${data.phone || 'No phone'}</p>
+          </div>
+        `;
+      })
+      .catch(error => {
+        console.error('Error loading staff info:', error);
+      });
+  } else {
+    document.getElementById('staffInfo').innerHTML = `
+      <div class="text-muted text-center">
+        <i class="fas fa-user fa-2x mb-2"></i>
+        <p>Select a staff member to view details</p>
+      </div>
+    `;
+  }
+}
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', function() {
+  // Add event listeners for real-time calculation
+  document.getElementById('id_basic_salary').addEventListener('input', calculateNetSalary);
+  document.getElementById('id_allowances').addEventListener('input', calculateNetSalary);
+  document.getElementById('id_deductions').addEventListener('input', calculateNetSalary);
+  
+  // Staff selection change
+  document.getElementById('id_staff').addEventListener('change', function() {
+    loadStaffInfo(this.value);
+  });
+  
+  // Initial calculation
+  calculateNetSalary();
+  
+  // Load staff info if editing
+  const staffSelect = document.getElementById('id_staff');
+  if (staffSelect.value) {
+    loadStaffInfo(staffSelect.value);
+  }
+});
+
+// Form validation
+document.getElementById('payrollForm').addEventListener('submit', function(e) {
+  const basicSalary = parseFloat(document.getElementById('id_basic_salary').value) || 0;
+  const netSalary = parseFloat(document.getElementById('id_net_salary').value) || 0;
+  
+  if (basicSalary <= 0) {
+    e.preventDefault();
+    alert('Basic salary must be greater than 0');
+    return false;
+  }
+  
+  if (netSalary < 0) {
+    e.preventDefault();
+    alert('Net salary cannot be negative. Please check your allowances and deductions.');
+    return false;
+  }
+});
+</script>
+
+<style>
+.avatar-lg {
+  width: 60px;
+  height: 60px;
+}
+
+.calculation-summary {
+  font-size: 14px;
+}
+
+.input-group-text {
+  background-color: #f8f9fa;
+  border-color: #dee2e6;
+}
+
+.form-control:focus, .form-select:focus {
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+.card {
+  border-radius: 0.5rem;
+  box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.btn {
+  border-radius: 0.375rem;
+}
+</style>
+
+{% endblock %}
