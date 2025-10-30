@@ -110,17 +110,17 @@ class PurchaseOrder(models.Model):
     invoice_no = models.CharField(max_length=50, null=True, blank=True)
 
     def __str__(self):
-        return f"PO-{self.id} for {self.supplier.name}"
+        return f"PO-{self.id} for {self.supplier.supplier_name}"
 
     @property
-    def total_cost(self):
+    def computed_total_cost(self):
         return sum(item.subtotal for item in self.items.all())
 
     class Meta:
         db_table = 'purchase_order'
 
 class PurchaseOrderDetail(models.Model):
-    order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE)
+    order = models.ForeignKey(PurchaseOrder, related_name='items', on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
     quantity_ordered = models.IntegerField()
     unit_cost = models.DecimalField(max_digits=10, decimal_places=2)
@@ -128,7 +128,7 @@ class PurchaseOrderDetail(models.Model):
 
     @property
     def subtotal(self):
-        return self.quantity * self.unit_cost
+        return self.quantity_ordered * self.unit_cost
     
     class Meta:
         db_table = 'purchase_order_detail'

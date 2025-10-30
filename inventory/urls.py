@@ -74,8 +74,8 @@ urlpatterns = [
     path('export/report/', views.export_report, name='export_report'),
     path('export/table/', views.export_table, name='export_table'),
 
-# Remove or update the old export endpoints to match the new function names:
-path('reports/export/pdf/', views.export_report_pdf, name='export_reports_pdf'),
-path('reports/export/csv/', views.export_report_csv, name='export_reports_csv'),
-path('reports/export/excel/', views.export_report_excel, name='export_reports_excel'),
+    # Expiry Management
+    path('expiry/confirm/', views.expiry_preview, name='expiry_preview'),
+    path('expiry/writeoff/', views.execute_expiry_writeoff, name='execute_expiry_writeoff'),
+    path('api/reports/expiry/', views.expiry_reports_api, name='expiry_reports_api'),
 ]

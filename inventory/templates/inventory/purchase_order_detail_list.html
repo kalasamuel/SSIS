@@ -8,9 +8,9 @@
 <tbody>
 {% for d in details %}
 <tr>
-<td>{{ d.purchase_order.id }}</td>
+<td>{{ d.order.id }}</td>
 <td>{{ d.product.product_name }}</td>
-<td>{{ d.quantity }}</td>
+<td>{{ d.quantity_ordered }}</td>
 <td>{{ d.unit_cost }}</td>
 <td>{{ d.sub_total }}</td>
 </tr>

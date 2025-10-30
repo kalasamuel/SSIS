@@ -1,7 +1,6 @@
 from django import forms
 from django.forms import inlineformset_factory
-from .models import *
-
+from .models import Sale, SaleDetail, Product, Supplier, Category, Customer, Staff, Discount, PurchaseOrder, PurchaseOrderDetail, InventoryLog, Payroll
 class SaleForm(forms.ModelForm):
     class Meta:
         model = Sale
@@ -35,7 +34,7 @@ class CustomerForm(forms.ModelForm):
         model = Customer
         fields = '__all__'
         
-class SaffForm(forms.ModelForm):
+class StaffForm(forms.ModelForm):
     class Meta:
         model = Staff
         fields = ['first_name', 'last_name', 'role', 'phone', 'username', 'password_hash']
