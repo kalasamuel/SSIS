@@ -79,9 +79,10 @@ urlpatterns = [
     path('reports/', views.reports_view, name='reports'),
     
     # API Endpoints for Charts and Data
-    #path('api/sales/by-year/', views.sales_by_year_api, name='sales_by_year_api'),
+    
     path('api/sales/by-category/', views.sales_by_category_api, name='sales_by_category_api'),
-    #path('api/sales/by-quarter/', views.sales_by_quarter_api, name='sales_by_quarter_api'),
+    
+    path('api/quarterly-sales/', views.quarterly_sales_api, name='quarterly_sales_api'),
     path('api/yearly-sales/', views.yearly_sales_api, name='yearly_sales_api'),
     path('api/monthly-sales/', views.monthly_sales_api, name='monthly_sales_api'),
     path('api/sales/histogram/', views.sales_histogram_api, name='sales_histogram_api'),
