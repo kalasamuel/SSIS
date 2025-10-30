@@ -19,8 +19,10 @@ from .utils import generate_purchase_order_pdf
 
 #graphs quarterly and yearly sales
 from django.http import JsonResponse, HttpResponse
-from django.db.models import Sum, F, FloatField
-from django.db.models.functions import ExtractYear, ExtractQuarter, ExtractMonth, TruncYear, TruncQuarter, TruncDate
+from django.db.models import Sum, F, FloatField, ExpressionWrapper, DecimalField
+from django.db.models.functions import ExtractYear, ExtractQuarter, ExtractMonth, TruncDay, TruncWeek, TruncMonth, TruncQuarter
+
+
 from django.utils import timezone
 from datetime import timedelta
 
@@ -1462,6 +1464,111 @@ def sales_table_data_api(request):
         })
 
     return JsonResponse(rows, safe=False)
+
+# ---------------------------------------------------------
+# FINACIAL REPORT
+# ---------------------------------------------------------
+
+def financial_report_api(request):
+    start = request.GET.get('start')
+    end = request.GET.get('end')
+    group_by = request.GET.get('group_by', 'day')
+
+    # Grouping functions for Sale queryset 
+    group_sale = {
+        'day': TruncDay('sale_datetime'),
+        'week': TruncWeek('sale_datetime'),
+        'month': TruncMonth('sale_datetime'),
+        'quarter': TruncQuarter('sale_datetime'),
+    }.get(group_by, TruncDay('sale_datetime'))
+
+    # Grouping functions for SaleDetail queryset 
+    group_saledetail = {
+        'day': TruncDay('sale__sale_datetime'),
+        'week': TruncWeek('sale__sale_datetime'),
+        'month': TruncMonth('sale__sale_datetime'),
+        'quarter': TruncQuarter('sale__sale_datetime'),
+    }.get(group_by, TruncDay('sale__sale_datetime'))
+
+    # ---------- GROSS SALES ----------
+    gross_sales = (
+        Sale.objects.filter(sale_datetime__date__range=[start, end])
+        .annotate(period=group_sale)
+        .values('period')
+        .annotate(value=Sum('total_amount'))
+        .order_by('period')
+    )
+
+    # ---------- COGS ----------
+    cogs = (
+        SaleDetail.objects.filter(sale__sale_datetime__date__range=[start, end])
+        .annotate(period=group_saledetail)
+        .values('period')
+        .annotate(
+            value=Sum(
+                F('quantity_sold') * F('product__unit_cost'),
+                output_field=DecimalField(max_digits=18, decimal_places=2)
+            )
+        )
+        .order_by('period')
+    )
+
+    # ---------- PAYROLL  -------------
+    payroll_group = {
+        'day': TruncDay('payment_date'),
+        'week': TruncWeek('payment_date'),
+        'month': TruncMonth('payment_date'),
+        'quarter': TruncQuarter('payment_date'),
+    }.get(group_by, TruncDay('payment_date'))
+
+    payroll_expenses = (
+        Payroll.objects.filter(payment_date__range=[start, end])
+        .annotate(period=payroll_group)
+        .values('period')
+        .annotate(value=Sum('net_salary'))
+        .order_by('period')
+    )
+
+    # ---------- EXPIRY LOSSES----------
+    expiry_group = {
+        'day': TruncDay('log_date'),
+        'week': TruncWeek('log_date'),
+        'month': TruncMonth('log_date'),
+        'quarter': TruncQuarter('log_date'),
+    }.get(group_by, TruncDay('log_date'))
+
+    expiry_losses = (
+        InventoryLog.objects.filter(
+            log_date__range=[start, end],
+            remarks__icontains='expiry_writeoff'
+        )
+        .annotate(period=expiry_group)
+        .values('period')
+        .annotate(
+            value=Sum(
+                F('quantity') * F('product__unit_cost'),
+                output_field=DecimalField(max_digits=18, decimal_places=2)
+            )
+        )
+        .order_by('period')
+    )
+
+    # ---------- TAXES ----------
+    taxes = (
+        Sale.objects.filter(sale_datetime__date__range=[start, end])
+        .annotate(period=group_sale)
+        .values('period')
+        #.annotate(value=Sum('tax_amount'))
+        .order_by('period')
+    )
+
+    return JsonResponse({
+        'gross_sales': list(gross_sales),
+        'cogs': list(cogs),
+        'payroll_expenses': list(payroll_expenses),
+        'expiry_losses': list(expiry_losses),
+        'taxes': list(taxes),
+    })
 
 # ---------------------------------------------------------
 # 📄 EXPORT VIEWS
