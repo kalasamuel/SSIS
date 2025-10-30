@@ -1377,7 +1377,7 @@ def sales_by_category_api(request):
 
 
 def sales_histogram_api(request):
-    """Return histogram-like data for sales frequency distribution."""
+    """Return sales distribution with realistic ranges"""
     date_filters = get_date_filters(request)
     
     # Base queryset
@@ -1387,11 +1387,13 @@ def sales_histogram_api(request):
     if 'end' in date_filters:
         sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
     
+    # More realistic ranges based on your data
     buckets = {
-        "0–100": sales_qs.filter(total_amount__lt=100).count(),
-        "100–500": sales_qs.filter(total_amount__gte=100, total_amount__lt=500).count(),
-        "500–1000": sales_qs.filter(total_amount__gte=500, total_amount__lt=1000).count(),
-        "1000+": sales_qs.filter(total_amount__gte=1000).count(),
+        "Under 50K": sales_qs.filter(total_amount__lt=50000).count(),
+        "50K–100K": sales_qs.filter(total_amount__gte=50000, total_amount__lt=100000).count(),
+        "100K–200K": sales_qs.filter(total_amount__gte=100000, total_amount__lt=200000).count(),
+        "200K–300K": sales_qs.filter(total_amount__gte=200000, total_amount__lt=300000).count(),
+        "300K+": sales_qs.filter(total_amount__gte=300000).count(),
     }
     labels = list(buckets.keys())
     values = list(buckets.values())
