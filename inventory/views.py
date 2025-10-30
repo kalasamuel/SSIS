@@ -11,7 +11,7 @@ from .models import (
 )
 from .forms import (
     SaleForm, SaleDetailForm, SaleDetailFormSet, ProductForm, SupplierForm,
-    CategoryForm, CustomerForm, SaffForm, DiscountForm, PurchaseOrderForm,
+    CategoryForm, CustomerForm, StaffForm, DiscountForm, PurchaseOrderForm,
     PurchaseOrderDetailForm, InventoryLogForm, PayrollForm
 )
 
@@ -509,13 +509,13 @@ def edit_customer(request, pk):
 # ---------------------------------------------------------
 def create_staff(request):
     if request.method == "POST":
-        form = SaffForm(request.POST)
+        form = StaffForm(request.POST)
         if form.is_valid():
             form.save()
             messages.success(request, "Staff added successfully.")
             return redirect("staff_list")
     else:
-        form = SaffForm()
+        form = StaffForm()
     return render(request, "inventory/staff_form.html", {"form": form})
 
 
@@ -701,12 +701,23 @@ def create_purchase_order(request):
         expected_date = request.POST.get("expected_delivery_date")
         invoice_no = request.POST.get("invoice_no")
 
+        # Resolve Staff instance (not auth User)
+        staff = Staff.objects.filter(username=getattr(request.user, "username", "")).first()
+        if not staff:
+            staff, _ = Staff.objects.get_or_create(
+                username="system",
+                defaults=dict(first_name="System", last_name="User", role="Admin", password_hash="system_user"),
+            )
+
         # Create the main order
         order = PurchaseOrder.objects.create(
             supplier_id=supplier_id,
-            expected_delivery_date=expected_date,
+            staff=staff,
+            order_date=date.today(),
+            expected_delivery_date=expected_date or None,
+            status="Pending",
+            total_cost=0,
             invoice_no=invoice_no,
-            staff=request.user
         )
 
         # Add product line items
@@ -716,12 +727,20 @@ def create_purchase_order(request):
 
         for i in range(len(product_ids)):
             if product_ids[i] and quantities[i] and unit_costs[i]:
+                qty = int(quantities[i])
+                cost = float(unit_costs[i])
+                line_total = qty * cost
                 PurchaseOrderDetail.objects.create(
-                    purchase_order=order,
+                    order=order,
                     product_id=product_ids[i],
-                    quantity=quantities[i],
-                    unit_cost=unit_costs[i],
+                    quantity_ordered=qty,
+                    unit_cost=cost,
+                    sub_total=line_total,
                 )
+
+        # Update order total
+        order.total_cost = sum(item.sub_total for item in order.items.all())
+        order.save(update_fields=["total_cost"])
 
         #  Generate PDF
         pdf_data = generate_purchase_order_pdf(order)
@@ -738,7 +757,7 @@ def create_purchase_order(request):
             subject,
             body,
             settings.DEFAULT_FROM_EMAIL,
-            [order.supplier.contact_email],
+            [order.supplier.email] if order.supplier.email else [],
         )
         email.attach(f"PurchaseOrder_{order.id}.pdf", pdf_data, "application/pdf")
         email.send(fail_silently=False)
@@ -807,6 +826,7 @@ def log_inventory(request):
 
 
 def inventory_log_list(request):
+    logs = InventoryLog.objects.all().order_by("-log_date")
     logs = InventoryLog.objects.all().order_by("-log_date")
     return render(request, "inventory/inventory_log_list.html", {"logs": logs})
 
@@ -2029,6 +2049,152 @@ def export_table_excel(request):
     return response
 
 
+# Expiry Management Views
+def expiry_preview(request):
+    """Preview expiring products and allow manual write-off"""
+    from datetime import date
+    
+    today = date.today()
+    
+    # Get expired products with stock
+    expired_products = Product.objects.filter(
+        expiry_date__lt=today,
+        stock_quantity__gt=0
+    ).select_related('category', 'supplier')
+    
+    # Calculate total potential loss
+    total_loss = sum(product.stock_quantity * product.unit_cost for product in expired_products)
+    
+    context = {
+        'expired_products': expired_products,
+        'total_loss': total_loss,
+        'product_count': expired_products.count()
+    }
+    
+    return render(request, 'inventory/expiry_confirm.html', context)
+
+
+def execute_expiry_writeoff(request):
+    """Execute expiry write-off after confirmation"""
+    if request.method != 'POST':
+        return redirect('expiry_preview')
+    
+    from django.db import transaction
+    from datetime import date
+    
+    today = date.today()
+    
+    # Get expired products with stock
+    expired_products = Product.objects.filter(
+        expiry_date__lt=today,
+        stock_quantity__gt=0
+    )
+    
+    if not expired_products.exists():
+        messages.info(request, 'No expired products found to write off')
+        return redirect('expiry_preview')
+    
+    # Get staff member (you might want to get from session or request)
+    try:
+        staff = Staff.objects.get(username='system')
+    except Staff.DoesNotExist:
+        staff = Staff.objects.create(
+            first_name='System',
+            last_name='User',
+            role='Admin',
+            username='system',
+            password_hash='system_user'
+        )
+    
+    # Process write-offs in a transaction
+    with transaction.atomic():
+        total_loss = 0
+        processed_count = 0
+        
+        for product in expired_products:
+            # Create inventory log entry
+            InventoryLog.objects.create(
+                staff=staff,
+                product=product,
+                log_type='Adjustment',
+                quantity=-product.stock_quantity,
+                remarks='expiry_writeoff',
+                log_date=timezone.now()
+            )
+            
+            # Calculate loss
+            loss_amount = product.stock_quantity * product.unit_cost
+            total_loss += loss_amount
+            
+            # Set stock quantity to 0
+            product.stock_quantity = 0
+            product.save()
+            
+            processed_count += 1
+    
+    messages.success(
+        request,
+        f'Successfully wrote off {processed_count} expired products. '
+        f'Total loss: ${total_loss:.2f}'
+    )
+    
+    return redirect('expiry_preview')
+
+
+def expiry_reports_api(request):
+    """API endpoint for expiry reports"""
+    from datetime import datetime, date
+    from django.db.models import Sum, F
+    
+    # Get date range parameters
+    start_date = request.GET.get('start')
+    end_date = request.GET.get('end')
+    
+    # Build query for expiry write-off logs
+    logs = InventoryLog.objects.filter(
+        remarks__icontains='expiry_writeoff'
+    ).select_related('product', 'staff')
+    
+    # Apply date filters
+    if start_date:
+        try:
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
+            logs = logs.filter(log_date__date__gte=start_dt)
+        except ValueError:
+            pass
+    
+    if end_date:
+        try:
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+            logs = logs.filter(log_date__date__lte=end_dt)
+        except ValueError:
+            pass
+    
+    # Calculate total loss
+    total_loss = sum(
+        abs(log.quantity) * log.product.unit_cost 
+        for log in logs 
+        if log.product
+    )
+    
+    # Prepare response data
+    data = {
+        'logs': [
+            {
+                'id': log.id,
+                'date': log.log_date.strftime('%Y-%m-%d %H:%M:%S'),
+                'product_name': log.product.product_name if log.product else 'Unknown',
+                'quantity': abs(log.quantity),
+                'unit_cost': float(log.product.unit_cost) if log.product else 0,
+                'loss_amount': float(abs(log.quantity) * log.product.unit_cost) if log.product else 0,
+                'staff': f"{log.staff.first_name} {log.staff.last_name}" if log.staff else 'Unknown'
+            }
+            for log in logs
+        ],
+        'total_loss': float(total_loss),
+        'count': logs.count()
+    }
+    
 # ---------------------------------------------------------
 # DISCOUNT AUTO-APPLICATION LOGIC
 # ---------------------------------------------------------

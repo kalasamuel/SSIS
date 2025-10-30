@@ -13,7 +13,7 @@ def generate_purchase_order_pdf(purchase_order):
     y -= 30
 
     p.setFont("Helvetica", 12)
-    p.drawString(50, y, f"Supplier: {purchase_order.supplier.name}")
+    p.drawString(50, y, f"Supplier: {purchase_order.supplier.supplier_name}")
     y -= 20
     p.drawString(50, y, f"Address: {purchase_order.supplier.address or '-'}")
     y -= 20
@@ -30,16 +30,19 @@ def generate_purchase_order_pdf(purchase_order):
     p.drawString(500, y, "Subtotal")
     y -= 20
 
+    total = 0
     for item in purchase_order.items.all():
-        p.drawString(50, y, item.product.name)
-        p.drawString(350, y, str(item.quantity))
+        line_total = item.quantity_ordered * item.unit_cost
+        total += line_total
+        p.drawString(50, y, item.product.product_name)
+        p.drawString(350, y, str(item.quantity_ordered))
         p.drawString(400, y, str(item.unit_cost))
-        p.drawString(500, y, str(item.subtotal))
+        p.drawString(500, y, str(line_total))
         y -= 20
 
     y -= 20
     p.setFont("Helvetica-Bold", 12)
-    p.drawString(400, y, f"Total: UGX {purchase_order.total_cost:,.2f}")
+    p.drawString(400, y, f"Total: UGX {total:,.2f}")
 
     p.showPage()
     p.save()

@@ -1,6 +1,5 @@
 from django import forms
 from django.forms import inlineformset_factory
-from django.utils import timezone
 from .models import *
 
 class SaleForm(forms.ModelForm):
@@ -36,7 +35,7 @@ class CustomerForm(forms.ModelForm):
         model = Customer
         fields = '__all__'
         
-class SaffForm(forms.ModelForm):
+class StaffForm(forms.ModelForm):
     class Meta:
         model = Staff
         fields = ['first_name', 'last_name', 'role', 'phone', 'username', 'password_hash']
