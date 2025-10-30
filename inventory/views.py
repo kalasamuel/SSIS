@@ -20,7 +20,7 @@ from .utils import generate_purchase_order_pdf
 #graphs quarterly and yearly sales
 from django.http import JsonResponse, HttpResponse
 from django.db.models import Sum, F, FloatField, ExpressionWrapper, DecimalField
-from django.db.models.functions import ExtractYear, ExtractQuarter, ExtractMonth, TruncDay, TruncWeek, TruncMonth, TruncQuarter
+from django.db.models.functions import ExtractYear, ExtractQuarter, ExtractMonth, TruncDate, TruncDay, TruncWeek, TruncMonth, TruncQuarter
 
 
 from django.utils import timezone
@@ -1215,10 +1215,6 @@ def export_payroll_pdf(request):
 
 
 
-
-# ---------------------------------------------------------
-# 📊 REPORTING & ANALYTICS API VIEWS
-# ---------------------------------------------------------
 
 # ---------------------------------------------------------
 # 📊 REPORTING & ANALYTICS API VIEWS
