@@ -1218,6 +1218,10 @@ def export_payroll_pdf(request):
 # 📊 REPORTING & ANALYTICS API VIEWS
 # ---------------------------------------------------------
 
+# ---------------------------------------------------------
+# 📊 REPORTING & ANALYTICS API VIEWS
+# ---------------------------------------------------------
+
 # Helper function to get date filters from request
 def get_date_filters(request):
     """
@@ -1250,64 +1254,57 @@ def get_date_filters(request):
     
     return filters
 
-
 def reports_view(request):
-    date_filters = get_date_filters(request)
-    
-    # Base queryset
-    sales_qs = Sale.objects.all()
-    if 'start' in date_filters:
-        sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
-    if 'end' in date_filters:
-        sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
-    
-    total_revenue = sales_qs.aggregate(total=Sum('total_amount'))['total'] or 0
-    total_orders = sales_qs.count()
-    avg_order_value = total_revenue / total_orders if total_orders else 0
-    
-    # SaleDetail queryset with same filters
-    sale_details_qs = SaleDetail.objects.filter(sale__in=sales_qs)
-    
-    top_category = (
-        sale_details_qs
-        .values('product__category__category_name')
-        .annotate(total=Sum(F('unit_price') * F('quantity_sold')))
-        .order_by('-total')
-        .first()
+    """View for analytics and reports dashboard."""
+    today = timezone.now().date()
+    month_start = today.replace(day=1)
+
+    # Use SaleDetail for itemized sales
+    sale_details = SaleDetail.objects.all()
+
+    # Total Sales
+    total_sales = sale_details.aggregate(
+        total=Sum(F('quantity_sold') * F('unit_price'), output_field=FloatField())
+    )['total'] or 0
+
+    # Total Purchases (from PurchaseOrderDetail)
+    purchases = PurchaseOrderDetail.objects.all()
+    total_purchases = purchases.aggregate(
+        total=Sum(F('quantity_ordered') * F('unit_cost'), output_field=FloatField())
+    )['total'] or 0
+
+    # Profit
+    profit = total_sales - total_purchases
+
+    # Sales by Category
+    category_sales = (
+        sale_details.values('product__category__category_name')
+        .annotate(total=Sum(F('unit_price') * F('quantity_sold'), output_field=FloatField()))
+        .order_by('product__category__category_name')
     )
+
+    # Sales distribution (for optional histogram)
+    sales_distribution = (
+        Sale.objects.annotate(day=TruncDate('sale_datetime'))
+        .values('day')
+        .annotate(count=Sum('total_amount'))
+        .order_by('day')
+    )
+
+    # Convert QuerySets to lists for safe JSON rendering
     context = {
-        'total_revenue': total_revenue,
-        'total_orders': total_orders,
-        'avg_order_value': avg_order_value,
-        'top_category': top_category['product__category__category_name'] if top_category else '-',
+        "total_sales": total_sales,
+        "total_purchases": total_purchases,
+        "profit": profit,
+        "category_sales": list(category_sales),
+        "sales_distribution": list(sales_distribution),
     }
+
     return render(request, 'inventory/reports.html', context)
 
 
-
-def sales_by_year_api(request):
-    """Return total sales grouped by year."""
-    date_filters = get_date_filters(request)
-    sales_qs = Sale.objects.all()
-    if 'start' in date_filters:
-        sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
-    if 'end' in date_filters:
-        sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
-
-    data = (
-        sales_qs
-        .annotate(period=TruncDate('sale_datetime'))
-        .values('period')
-        .annotate(total=Sum('total_amount', output_field=FloatField()))
-        .order_by('period')
-    )
-    labels = [d['period'].strftime('%Y-%m-%d') for d in data if d['period']]
-    values = [float(d['total'] or 0) for d in data]
-    return JsonResponse({'labels': labels, 'data': values})
-
-
 def sales_by_category_api(request):
-    """Return total sales grouped by product category (no date axis needed)."""
+    """Return total sales grouped by product category as percentages."""
     date_filters = get_date_filters(request)
 
     sale_details_qs = SaleDetail.objects.all()
@@ -1316,61 +1313,23 @@ def sales_by_category_api(request):
     if 'end' in date_filters:
         sale_details_qs = sale_details_qs.filter(sale__sale_datetime__lte=date_filters['end'])
 
+    # Group totals by category
     data = (
         sale_details_qs
         .values('product__category__category_name')
         .annotate(total=Sum(F('unit_price') * F('quantity_sold'), output_field=FloatField()))
         .order_by('product__category__category_name')
     )
+
+    # Calculate the grand total
+    grand_total = sum(d['total'] or 0 for d in data) or 1  # avoid division by zero
+
+    # Convert each total to percentage
     labels = [d['product__category__category_name'] or 'Uncategorized' for d in data]
-    values = [float(d['total'] or 0) for d in data]
-    return JsonResponse({'labels': labels, 'data': values})
+    percentages = [round((float(d['total'] or 0) / grand_total) * 100, 2) for d in data]
 
+    return JsonResponse({'labels': labels, 'data': percentages})
 
-def sales_by_quarter_api(request):
-    """Return quarterly sales totals, grouping by year and quarter, and generating quarter start date label."""
-    date_filters = get_date_filters(request)
-    sales_qs = Sale.objects.all()
-    if 'start' in date_filters:
-        sales_qs = sales_qs.filter(sale_datetime__gte=date_filters['start'])
-    if 'end' in date_filters:
-        sales_qs = sales_qs.filter(sale_datetime__lte=date_filters['end'])
-
-    data = (
-        sales_qs
-        # Group by year and quarter
-        .annotate(year=ExtractYear('sale_datetime'), quarter=ExtractQuarter('sale_datetime'))
-        .values('year', 'quarter')
-        .annotate(total=Sum('total_amount', output_field=FloatField()))
-        .order_by('year', 'quarter')
-    )
-    
-    labels = []
-    values = []
-    
-    # Manually construct the quarter start date (YYYY-MM-DD)
-    # The start month for quarters are 1 (Q1), 4 (Q2), 7 (Q3), 10 (Q4)
-    q_start_months = {1: 1, 2: 4, 3: 7, 4: 10}
-    
-    for d in data:
-        year = d.get('year')
-        quarter = d.get('quarter')
-        total = d.get('total', 0)
-
-        if year and quarter:
-            # Get the starting month for the quarter
-            start_month = q_start_months.get(quarter)
-            if start_month is not None:
-                try:
-                    # Create a date object for the first day of that quarter
-                    quarter_start_date = datetime.date(year, start_month, 1)
-                    labels.append(quarter_start_date.strftime('%Y-%m-%d'))
-                    values.append(float(total))
-                except ValueError:
-                    # Handle cases where year/month might be invalid (unlikely)
-                    continue
-
-    return JsonResponse({'labels': labels, 'data': values})
 
 def sales_histogram_api(request):
     """Return histogram-like data for sales frequency distribution."""
@@ -1392,7 +1351,6 @@ def sales_histogram_api(request):
     labels = list(buckets.keys())
     values = list(buckets.values())
     return JsonResponse({'labels': labels, 'data': values})
-
 
 # --- KPI API: returns totals for dashboard ---
 def kpi_data_api(request):
@@ -1504,7 +1462,6 @@ def sales_table_data_api(request):
         })
 
     return JsonResponse(rows, safe=False)
-
 
 # ---------------------------------------------------------
 # 📄 EXPORT VIEWS

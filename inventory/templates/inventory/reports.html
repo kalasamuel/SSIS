@@ -23,9 +23,9 @@
         <label class="form-label">Date Range</label>
         <select id="dateRange" class="form-select">
           <option value="7">Last 7 Days</option>
-          <option value="30" selected>Last 30 Days</option>
+          <option value="30">Last 30 Days</option>
           <option value="90">Last 90 Days</option>
-          <option value="365">Last Year</option>
+          <option value="365" selected>Last Year</option>
           <option value="custom">Custom Range</option>
         </select>
       </div>
@@ -78,22 +78,7 @@
 
 <!-- Charts row -->
 <div class="row mb-3">
-  <div class="col-lg-8 mb-3">
-    <div class="card h-100">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <div><strong>Sales Trend</strong></div>
-        <div class="btn-group btn-group-sm">
-          <button class="btn btn-outline-primary active" id="btnLine">Line</button>
-          <button class="btn btn-outline-primary" id="btnBar">Bar</button>
-        </div>
-      </div>
-      <div class="card-body">
-        <canvas id="salesTrendChart" height="260"></canvas>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-lg-4 mb-3">
+  <div class="col-lg-6 mb-3">
     <div class="card h-100">
       <div class="card-header"><strong>Sales by Category</strong></div>
       <div class="card-body">
@@ -101,23 +86,12 @@
       </div>
     </div>
   </div>
-</div>
 
-<!-- Secondary charts -->
-<div class="row mb-3">
-  <div class="col-md-6 mb-3">
-    <div class="card">
-      <div class="card-header"><strong>Quarterly Performance</strong></div>
-      <div class="card-body">
-        <canvas id="quarterlyChart" height="200"></canvas>
-      </div>
-    </div>
-  </div>
-  <div class="col-md-6 mb-3">
-    <div class="card">
+  <div class="col-lg-6 mb-3">
+    <div class="card h-100">
       <div class="card-header"><strong>Sales Distribution</strong></div>
       <div class="card-body">
-        <canvas id="distributionChart" height="200"></canvas>
+        <canvas id="distributionChart" height="260"></canvas>
       </div>
     </div>
   </div>
@@ -178,20 +152,10 @@
   </div>
 </div>
 
-
-<!-- Chart.js (v3+ or v4+) -->
+<!-- Chart.js and dependencies -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
-
-<!-- Luxon (peer for the adapter) -->
 <script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
-
-<!-- Chart.js adapter for Luxon -->
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.4.0/dist/chartjs-adapter-luxon.min.js"></script>
-
-<!-- Chart.js with time adapter -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-<!-- Font Awesome for icons -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
 <script>
@@ -199,11 +163,13 @@
    Helper & globals
    ------------------------- */
 const charts = {};
-let currentChartType = 'line';
 let currentExportType = '';
 
 /* Safe HTML escape */
-function escapeHtml(s){ if(s===null||s===undefined) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
+function escapeHtml(s){ 
+  if(s===null||s===undefined) return ''; 
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); 
+}
 
 /* Compose query params for date filters */
 function dateQuery() {
@@ -240,14 +206,12 @@ function exportData(format) {
     url = '/export/table/?format=' + format;
   }
   
-  // Add current date filters
   const fromDate = document.getElementById('fromDate').value;
   const toDate = document.getElementById('toDate').value;
   
   if (fromDate) url += '&from=' + fromDate;
   if (toDate) url += '&to=' + toDate;
   
-  // Close modal and trigger download
   const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
   modal.hide();
   window.location.href = url;
@@ -284,12 +248,9 @@ function updateDateInputs() {
   const to = today.toISOString().split('T')[0];
   
   if (selectedRange === 'custom') {
-    // Enable date inputs for custom range
     fromInput.disabled = false;
     toInput.disabled = false;
-    // Don't auto-change dates, let user select
   } else {
-    // Disable date inputs and calculate range
     fromInput.disabled = true;
     toInput.disabled = true;
     
@@ -329,94 +290,6 @@ async function updateKPIs() {
   }
 }
 
-function makePoints(labels, values){
-  return labels.map((lab, i) => ({ x: lab, y: values[i] }));
-}
-
-async function loadSalesData() {
-  try {
-    const res = await fetchWithTimeout("{% url 'sales_by_year_api' %}" + dateQuery(), { timeout: 15000 });
-    if (!res.ok) throw new Error('sales_by_year_api ' + res.status);
-    const payload = await res.json();
-
-    const ctx = document.getElementById('salesTrendChart').getContext('2d');
-    if (charts.salesTrend) charts.salesTrend.destroy();
-
-    // map labels+data into [{x: '2025-05-01', y: 123}, ...]
-    const points = makePoints(payload.labels, payload.data);
-
-    charts.salesTrend = new Chart(ctx, {
-      type: currentChartType,
-      data: {
-        // use a single dataset with explicit x/y points
-        datasets: [{
-          label: 'Total Sales',
-          data: points,
-          borderColor: '#0d6efd',
-          backgroundColor: 'rgba(13,110,253,0.12)',
-          fill: true,
-          tension: 0.3,
-          parsing: false // we already provide x,y
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: {
-            type: 'time',
-            time: {
-              // your server returns ISO YYYY-MM-DD strings — the adapter will parse them.
-              // force granularity if you want yearly/monthly/day ticks:
-              unit: 'day', // change to 'month' or 'year' depending on your dataset
-              displayFormats: {
-                day: 'MMM dd',
-                month: 'MMM yyyy',
-                year: 'yyyy'
-              }
-            },
-            title: { display: true, text: 'Date' }
-          },
-          y: {
-            beginAtZero: true,
-            ticks: { callback: v => 'UGx. ' + Number(v).toLocaleString() },
-            title: { display: true, text: 'Sales Amount' }
-          }
-        },
-        plugins: {
-          tooltip: {
-            callbacks: {
-              label: ctx => `UGx. ${Number(ctx.formattedValue).toLocaleString()}`
-            }
-          },
-          // *** ADDED: Zoom Plugin Configuration for Scrolling/Zooming ***
-          zoom: {
-            zoom: {
-              wheel: { enabled: true }, // Enable zoom via mouse wheel
-              pinch: { enabled: true }, // Enable zoom via pinch/touch
-              mode: 'x', // Only zoom on the X-axis (time)
-            },
-            pan: {
-              enabled: true, // Enable panning (scrolling)
-              mode: 'x', // Only pan on the X-axis (time)
-              // Optional: limits on how far you can pan out
-              // limits: {
-              //     min: 'original',
-              //     max: 'original'
-              // }
-            },
-            // Double-click to reset the zoom/pan
-            doubleClick: true
-          }
-          // *** END ADDED ***
-        }
-      }
-    });
-  } catch (err) {
-    console.error('loadSalesData error', err);
-  }
-}
-
 async function loadCategoryData() {
   try {
     const res = await fetchWithTimeout("{% url 'sales_by_category_api' %}" + dateQuery(), { timeout: 15000 });
@@ -428,93 +301,37 @@ async function loadCategoryData() {
 
     charts.category = new Chart(ctx, {
       type: 'doughnut',
-      data: { labels: payload.labels, datasets: [{ data: payload.data }] },
-      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom' } } }
-    });
-  } catch (err) {
-    console.error('loadCategoryData error', err);
-  }
-}
-
-// ... loadCategoryData (no change needed)
-
-async function loadQuarterlyData() {
-  try {
-    const res = await fetchWithTimeout("{% url 'sales_by_quarter_api' %}" + dateQuery(), { timeout: 15000 });
-    if (!res.ok) throw new Error('sales_by_quarter_api ' + res.status);
-    const payload = await res.json();
-
-    const ctx = document.getElementById('quarterlyChart').getContext('2d');
-    if (charts.quarterly) charts.quarterly.destroy();
-
-    // The backend uses custom labels like '2025-Q1', but the frontend expects date-like
-    // points. The `makePoints` function needs to be able to handle this.
-    // NOTE: The current backend returns '2025-Q1', which Chart.js time scale won't parse directly.
-    // For the quarterly chart to use the 'time' scale, your `sales_by_quarter_api`
-    // should return **quarter start dates** (e.g., '2025-01-01', '2025-04-01', etc.)
-    // as suggested by the original comment:
-    // `// quarterly labels are like "2025-04-01" (quarter start) from Django`
-    
-    // Assuming you update your backend to return quarter start dates:
-    const points = makePoints(payload.labels, payload.data);
-
-    charts.quarterly = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        datasets: [{
-          label: 'Quarterly Sales',
-          data: points,
-          backgroundColor: 'rgba(40,167,69,0.8)',
-          borderColor: '#28a745',
-          borderWidth: 1,
-          parsing: false
-        }]
+      data: { 
+        labels: payload.labels, 
+        datasets: [{ 
+          data: payload.data,
+          backgroundColor: [
+            'rgba(255, 99, 132, 0.8)',
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 206, 86, 0.8)',
+            'rgba(75, 192, 192, 0.8)',
+            'rgba(153, 102, 255, 0.8)',
+            'rgba(255, 159, 64, 0.8)',
+          ]
+        }] 
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: {
-            type: 'time',
-            time: {
-              // With quarter start dates (e.g., '2025-01-01'), Chart.js will display the quarter.
-              parser: 'yyyy-MM-dd',
-              unit: 'quarter', // Correctly groups data by quarter
-              displayFormats: {
-                quarter: 'QQQ yyyy',
-                month: 'MMM yyyy'
+      options: { 
+        responsive: true, 
+        maintainAspectRatio: false, 
+        plugins: { 
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return context.label + ': ' + context.parsed.toFixed(1) + '%';
               }
-            },
-            title: { display: true, text: 'Quarter' }
-          },
-          y: {
-            beginAtZero: true,
-            title: { display: true, text: 'Sales Amount' },
-            ticks: { callback: v => 'UGx. ' + Number(v).toLocaleString() }
+            }
           }
-        },
-        // offset bars so they line up on time scale nicely
-        datasets: { bar: { categoryPercentage: 0.8, barPercentage: 0.9 } },
-        plugins: {
-          // *** ADDED: Zoom Plugin Configuration for Scrolling/Zooming ***
-          zoom: {
-            zoom: {
-              wheel: { enabled: true },
-              pinch: { enabled: true },
-              mode: 'x',
-            },
-            pan: {
-              enabled: true,
-              mode: 'x',
-            },
-            doubleClick: true
-          }
-          // *** END ADDED ***
-        }
+        } 
       }
     });
   } catch (err) {
-    console.error('loadQuarterlyData error', err);
+    console.error('loadCategoryData error', err);
   }
 }
 
@@ -529,8 +346,29 @@ async function loadDistributionData() {
 
     charts.dist = new Chart(ctx, {
       type: 'bar',
-      data: { labels: payload.labels, datasets: [{ label:'Sales Count', data: payload.data }] },
-      options: { responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } }
+      data: { 
+        labels: payload.labels, 
+        datasets: [{ 
+          label: 'Sales Count', 
+          data: payload.data,
+          backgroundColor: 'rgba(255, 159, 64, 0.8)',
+          borderColor: 'rgba(255, 159, 64, 1)',
+          borderWidth: 1
+        }] 
+      },
+      options: { 
+        responsive: true, 
+        maintainAspectRatio: false, 
+        scales: { 
+          y: { 
+            beginAtZero: true,
+            title: { display: true, text: 'Number of Sales' }
+          },
+          x: {
+            title: { display: true, text: 'Sale Amount Range (UGx)' }
+          }
+        } 
+      }
     });
   } catch (err) {
     console.error('loadDistributionData error', err);
@@ -558,7 +396,7 @@ async function loadTableData() {
         <td class="text-end">UGx. ${Number(r.unit_price || 0).toLocaleString()}</td>
         <td class="text-end">UGx. ${Number(r.total || 0).toLocaleString()}</td>
         <td>${escapeHtml(r.customer)}</td>
-      </tr>` ).join('');
+      </tr>`).join('');
   } catch (err) {
     console.error('loadTableData error', err);
     tbody.innerHTML = '<tr><td colspan="7" class="text-danger text-center">Error loading table data</td></tr>';
@@ -572,9 +410,7 @@ async function loadTableData() {
 async function loadAllReports() {
   const promises = [
     updateKPIs(),
-    loadSalesData(),
     loadCategoryData(),
-    loadQuarterlyData(),
     loadDistributionData(),
     loadTableData()
   ];
@@ -582,52 +418,33 @@ async function loadAllReports() {
   try {
     await Promise.allSettled(promises);
   } finally {
-    // Ensure any cleanup happens
+    // Cleanup if needed
   }
 }
 
 function initializeDateInputs() {
-  const today = new Date();
-  const to = today.toISOString().split('T')[0];
-  const from = new Date(today.getTime() - 30*24*60*60*1000).toISOString().split('T')[0];
-  document.getElementById('fromDate').value = from;
-  document.getElementById('toDate').value = to;
-  
-  // Set initial state
-  updateDateInputs();
+   const today = new Date();
+   const to = today.toISOString().split('T')[0];
+   const from = new Date(today.getTime() - 365*24*60*60*1000).toISOString().split('T')[0];
+   document.getElementById('fromDate').value = from;
+   document.getElementById('toDate').value = to;
+
+   updateDateInputs();
 }
 
-// Chart type buttons and event listeners
+// Event listeners
 document.addEventListener('DOMContentLoaded', function() {
   initializeDateInputs();
 
-  // Wire chart type buttons
-  document.getElementById('btnLine').addEventListener('click', function(){
-    currentChartType='line';
-    this.classList.add('active');
-    document.getElementById('btnBar').classList.remove('active');
-    loadSalesData();
-  });
-  
-  document.getElementById('btnBar').addEventListener('click', function(){
-    currentChartType='bar';
-    this.classList.add('active');
-    document.getElementById('btnLine').classList.remove('active');
-    loadSalesData();
-  });
-
-  // Wire Generate button
   document.getElementById('btnGenerate').addEventListener('click', function(){ 
     loadAllReports(); 
   });
 
-  // Wire date range dropdown - update dates AND reload reports
   document.getElementById('dateRange').addEventListener('change', function() {
     updateDateInputs();
     loadAllReports();
   });
 
-  // Wire custom date inputs - reload when changed (only if custom is selected)
   document.getElementById('fromDate').addEventListener('change', function() {
     if (document.getElementById('dateRange').value === 'custom') {
       loadAllReports();
@@ -640,20 +457,15 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  // Auto load once on page load
   loadAllReports();
 });
 
-// Refresh wrapper
 function refreshData(){ loadAllReports(); }
-
-// Print functions
 function printReports(){ window.print(); }
 function printTable(){ window.print(); }
 </script>
 
 <style>
-/* Minor style tweaks */
 .card { border-radius: .4rem; }
 .table th, .table td { vertical-align: middle; }
 #salesTable tbody td { white-space: nowrap; }

@@ -82,10 +82,10 @@ urlpatterns = [
     path('reports/', views.reports_view, name='reports'),
 
     # Charts
-    path('api/sales_by_year/', views.sales_by_year_api, name='sales_by_year_api'),
+    #path('api/sales_by_year/', views.sales_by_year_api, name='sales_by_year_api'),
     path('api/sales_by_category/', views.sales_by_category_api, name='sales_by_category_api'),
     #extended analytics
-    path('api/sales_by_quarter/', views.sales_by_quarter_api, name='sales_by_quarter_api'),
+   # path('api/sales_by_quarter/', views.sales_by_quarter_api, name='sales_by_quarter_api'),
     path('api/sales_histogram/', views.sales_histogram_api, name='sales_histogram_api'),
 
     path('api/sales_table_data/', views.sales_table_data_api, name='sales_table_data_api'),
