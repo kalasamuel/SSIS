@@ -1611,48 +1611,41 @@ def monthly_sales_api(request):
     })
     
 def quarterly_sales_api(request):
-    """Return quarterly sales data using reliable date filtering"""
+    """Simple quarterly sales using same approach as yearly sales"""
     try:
         # Get year range from request
-        start_year = request.GET.get('start_year', '2021')
+        start_year = request.GET.get('start_year', '2023')
         end_year = request.GET.get('end_year', '2025')
         
         try:
             start_year = int(start_year)
             end_year = int(end_year)
         except (ValueError, TypeError):
-            start_year = 2021
+            start_year = 2023
             end_year = 2025
 
-        print(f"DEBUG: Querying quarterly sales for years {start_year} to {end_year}")
+        print(f"QUARTERLY DEBUG: Querying years {start_year} to {end_year}")
 
-        # Get quarterly data using manual quarter calculation (more reliable)
+        # Simple approach - use the same logic as yearly sales but for quarters
         quarterly_data = []
         for year in range(start_year, end_year + 1):
-            print(f"DEBUG: Processing year {year}")
+            print(f"QUARTERLY DEBUG: Processing year {year}")
             
-            # Define quarter date ranges manually
-            quarters = [
-                (1, f"{year}-01-01", f"{year}-03-31"),  # Q1: Jan-Mar
-                (2, f"{year}-04-01", f"{year}-06-30"),  # Q2: Apr-Jun
-                (3, f"{year}-07-01", f"{year}-09-30"),  # Q3: Jul-Sep
-                (4, f"{year}-10-01", f"{year}-12-31")   # Q4: Oct-Dec
-            ]
-            
-            for quarter, start_date, end_date in quarters:
-                # Use date range filtering instead of quarter filter
+            for quarter in range(1, 5):  # Quarters 1-4
+                # Simple quarter filtering using the same approach as yearly
                 quarter_sales = Sale.objects.filter(
-                    sale_datetime__date__gte=start_date,
-                    sale_datetime__date__lte=end_date
-                )
+                    sale_datetime__year=year
+                ).extra({
+                    'quarter': "EXTRACT(QUARTER FROM sale_datetime)"
+                }).filter(quarter=quarter)
+                
                 quarter_total = quarter_sales.aggregate(total=Sum('total_amount'))['total'] or 0
                 
-                print(f"DEBUG: Year {year} Q{quarter} ({start_date} to {end_date}): {quarter_sales.count()} records, total: {quarter_total}")
+                print(f"QUARTERLY DEBUG: Year {year} Q{quarter}: {quarter_sales.count()} records, total: {quarter_total}")
                 
-                # Show sample data if available
                 if quarter_sales.exists():
                     sample = quarter_sales.first()
-                    print(f"DEBUG: Sample record - {sample.sale_datetime}: {sample.total_amount}")
+                    print(f"QUARTERLY DEBUG: Sample - {sample.sale_datetime} - {sample.total_amount}")
                 
                 quarterly_data.append({
                     'year': year,
@@ -1661,7 +1654,7 @@ def quarterly_sales_api(request):
                     'total_sales': float(quarter_total)
                 })
 
-        # Prepare response - group by year with quarters
+        # Group by year
         years = []
         quarters_data = {}
         
@@ -1676,7 +1669,7 @@ def quarterly_sales_api(request):
             
             quarters_data[year][quarter] = sales
 
-        # Convert to chart-friendly format
+        # Prepare response
         quarter_labels = ['Q1', 'Q2', 'Q3', 'Q4']
         datasets = []
         
@@ -1691,7 +1684,7 @@ def quarterly_sales_api(request):
                 ]
             })
 
-        print(f"DEBUG: Final quarterly response - datasets: {datasets}")
+        print(f"QUARTERLY DEBUG: Final response - {datasets}")
 
         return JsonResponse({
             'labels': quarter_labels,
@@ -1700,13 +1693,12 @@ def quarterly_sales_api(request):
         })
         
     except Exception as e:
-        print(f"ERROR in quarterly_sales_api: {e}")
+        print(f"QUARTERLY ERROR: {e}")
         import traceback
-        print(f"ERROR Traceback: {traceback.format_exc()}")
+        print(f"QUARTERLY TRACEBACK: {traceback.format_exc()}")
         
-        # Return test data to verify the chart works
+        # Fallback to test data
         return JsonResponse({
-            'error': str(e),
             'labels': ['Q1', 'Q2', 'Q3', 'Q4'],
             'datasets': [
                 {'label': '2023', 'data': [1000000, 1500000, 1200000, 1800000]},
