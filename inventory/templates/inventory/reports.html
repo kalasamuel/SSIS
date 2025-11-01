@@ -26,6 +26,7 @@
           <option value="30">Last 30 Days</option>
           <option value="90">Last 90 Days</option>
           <option value="365" selected>Last Year</option>
+          <option value="1825" selected>All Time (5 Years)</option>
           <option value="custom">Custom Range</option>
         </select>
       </div>
@@ -142,6 +143,83 @@
       <div class="card-body">
         <canvas id="quarterlySalesChart" height="300"></canvas>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tax Reporting Section -->
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>Tax Reporting</strong>
+    <div class="d-flex gap-2 align-items-center">
+      <label class="form-label mb-0" style="font-size: 0.9rem;">Tax Rate (optional):</label>
+      <input type="number" id="taxRateInput" class="form-control form-control-sm" style="width: 100px;" 
+             placeholder="0.18" step="0.01" min="0" max="1" title="Enter tax rate as decimal (e.g., 0.18 for 18%)">
+      <button id="btnLoadTaxes" class="btn btn-sm btn-primary">Load Tax Report</button>
+      <button id="btnGroupByPayment" class="btn btn-sm btn-outline-secondary">Group by Payment</button>
+    </div>
+  </div>
+  <div class="card-body">
+    <!-- Tax Summary Cards -->
+    <div class="row mb-3">
+      <div class="col-md-4 mb-2">
+        <div class="card p-2 bg-light">
+          <small class="text-muted">Total Tax Collected</small>
+          <h4 id="totalTaxAmount" class="mb-0">UGx. 0.00</h4>
+          <small class="text-info">Tax Amount</small>
+        </div>
+      </div>
+      <div class="col-md-4 mb-2">
+        <div class="card p-2 bg-light">
+          <small class="text-muted">Number of Sales</small>
+          <h4 id="taxSalesCount" class="mb-0">0</h4>
+          <small class="text-info">Sales Count</small>
+        </div>
+      </div>
+      <div class="col-md-4 mb-2">
+        <div class="card p-2 bg-light">
+          <small class="text-muted">Average Tax per Sale</small>
+          <h4 id="avgTaxPerSale" class="mb-0">UGx. 0.00</h4>
+          <small class="text-info">Average</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tax Chart -->
+    <div class="row mb-3">
+      <div class="col-lg-6 mb-3">
+        <div class="card h-100">
+          <div class="card-header"><strong>Tax by Payment Method</strong></div>
+          <div class="card-body">
+            <canvas id="taxByPaymentChart" height="260"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6 mb-3">
+        <div class="card h-100">
+          <div class="card-header"><strong>Tax Breakdown</strong></div>
+          <div class="card-body">
+            <canvas id="taxBreakdownChart" height="260"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tax Details Table -->
+    <div class="table-responsive">
+      <table class="table table-hover" id="taxTable">
+        <thead class="table-light">
+          <tr>
+            <th>Payment Method</th>
+            <th class="text-end">Total Tax</th>
+            <th class="text-end">Sales Count</th>
+            <th class="text-end">Avg Tax per Sale</th>
+          </tr>
+        </thead>
+        <tbody id="taxTableBody">
+          <tr><td colspan="4" class="text-center py-4 text-muted">Click "Load Tax Report" to view tax data</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -295,6 +373,8 @@ function updateDateInputs() {
   
   const today = new Date();
   const to = today.toISOString().split('T')[0];
+    
+  
   
   if (selectedRange === 'custom') {
     fromInput.disabled = false;
@@ -308,8 +388,19 @@ function updateDateInputs() {
     
     fromInput.value = from;
     toInput.value = to;
+        if (days && !isNaN(days)) {
+      const from = new Date(today.getTime() - days*24*60*60*1000).toISOString().split('T')[0];
+      fromInput.value = from;
+      toInput.value = to;
+    } else {
+      // For "All Time" or invalid selections, set a wide range
+      const from = new Date(today.getTime() - 5*365*24*60*60*1000).toISOString().split('T')[0];
+      fromInput.value = from;
+      toInput.value = to;
+    }
   }
 }
+
 
 /* -------------------------
    API loaders
@@ -682,6 +773,7 @@ function initializeDateInputs() {
    const today = new Date();
    const to = today.toISOString().split('T')[0];
    const from = new Date(today.getTime() - 365*24*60*60*1000).toISOString().split('T')[0];
+   
    document.getElementById('fromDate').value = from;
    document.getElementById('toDate').value = to;
 
@@ -712,6 +804,7 @@ document.addEventListener('DOMContentLoaded', function() {
       loadAllReports();
     }
   });
+  
 
   loadAllReports();
 });
@@ -719,6 +812,239 @@ document.addEventListener('DOMContentLoaded', function() {
 function refreshData(){ loadAllReports(); }
 function printReports(){ window.print(); }
 function printTable(){ window.print(); }
+
+/* -------------------------
+   Tax Reporting Functions
+   ------------------------- */
+
+let taxChartByPayment = null;
+let taxBreakdownChart = null;
+
+   
+  /* -------------------------
+    MAIN LOAD FUNCTION
+    ------------------------- */
+  document.getElementById('btnLoadTaxes').addEventListener('click', loadTaxReport);
+  
+  async function loadTaxReport() {
+    try {
+      const url = "http://127.0.0.1:8000/api/reports/taxes/";
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Failed to load tax report');
+  
+      const data = await res.json();
+      console.log("✅ Tax API Data:", data);
+  
+      // ---------------------
+      // Update KPI Cards
+      // ---------------------
+      const totalTax = Number(data.total_tax || 0);
+      const saleCount = Number(data.count_of_sales || 0);
+      const avgTax = saleCount > 0 ? totalTax / saleCount : 0;
+  
+      document.getElementById('totalTaxAmount').textContent =
+        'UGx. ' + totalTax.toLocaleString(undefined, { minimumFractionDigits: 0 });
+      document.getElementById('taxSalesCount').textContent =
+        saleCount.toLocaleString();
+      document.getElementById('avgTaxPerSale').textContent =
+        'UGx. ' + avgTax.toLocaleString(undefined, { minimumFractionDigits: 0 });
+  
+      // ---------------------
+      // Update Table
+      // ---------------------
+      const tbody = document.getElementById('taxTableBody');
+      tbody.innerHTML = `
+        <tr>
+          <td><strong>All Payments</strong></td>
+          <td class="text-end"><strong>UGx. ${totalTax.toLocaleString()}</strong></td>
+          <td class="text-end"><strong>${saleCount.toLocaleString()}</strong></td>
+          <td class="text-end"><strong>UGx. ${avgTax.toLocaleString()}</strong></td>
+        </tr>
+      `;
+  
+      // ---------------------
+      // Render Charts
+      // ---------------------
+      const chartData = [{
+        payment_method: 'All Sales',
+        total_tax: totalTax,
+        count_of_sales: saleCount,
+      }];
+      updateTaxCharts(chartData, totalTax);
+  
+    } catch (err) {
+      console.error('❌ loadTaxReport error:', err);
+      alert('Error loading tax report: ' + err.message);
+      document.getElementById('taxTableBody').innerHTML =
+        '<tr><td colspan="4" class="text-danger text-center">Error loading tax data.</td></tr>';
+      clearTaxCharts();
+    }
+  }
+  
+  /* -------------------------
+    CHART UPDATES
+    ------------------------- */
+  function updateTaxCharts(groups, totalTax) {
+    const labels = groups.map(g => g.payment_method);
+    const taxValues = groups.map(g => g.total_tax);
+  
+    // Destroy old charts before re-rendering
+    if (taxChartByPayment) taxChartByPayment.destroy();
+    if (taxBreakdownChart) taxBreakdownChart.destroy();
+  
+    // ---- Bar Chart: Tax by Payment Method ----
+    const ctxBar = document.getElementById('taxByPaymentChart').getContext('2d');
+    taxChartByPayment = new Chart(ctxBar, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Tax by Payment Method',
+          data: taxValues,
+          backgroundColor: [
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 99, 132, 0.8)',
+            'rgba(75, 192, 192, 0.8)',
+            'rgba(255, 159, 64, 0.8)',
+          ],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => 'UGx. ' + ctx.parsed.y.toLocaleString()
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: 'Tax Amount (UGx)' },
+            ticks: {
+              callback: v => 'UGx. ' + v.toLocaleString()
+            }
+          },
+          x: { title: { display: true, text: 'Payment Method' } }
+        }
+      }
+    });
+  
+    // ---- Doughnut Chart: Tax Breakdown ----
+    const ctxPie = document.getElementById('taxBreakdownChart').getContext('2d');
+    taxBreakdownChart = new Chart(ctxPie, {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data: taxValues,
+          backgroundColor: [
+            'rgba(255, 205, 86, 0.8)',
+            'rgba(153, 102, 255, 0.8)',
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 99, 132, 0.8)',
+          ]
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const label = ctx.label || '';
+                const value = ctx.parsed || 0;
+                const percentage = totalTax > 0 ? ((value / totalTax) * 100).toFixed(1) : 0;
+                return `${label}: UGx. ${value.toLocaleString()} (${percentage}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+  
+  /* -------------------------
+    CLEAR CHARTS (if needed)
+    ------------------------- */
+  function clearTaxCharts() {
+    if (taxChartByPayment) {
+      taxChartByPayment.destroy();
+      taxChartByPayment = null;
+    }
+    if (taxBreakdownChart) {
+      taxBreakdownChart.destroy();
+      taxBreakdownChart = null;
+    }
+  }
+
+  async function loadTaxReport(groupByPayment = false) {
+try {
+  const url = `http://127.0.0.1:8000/api/reports/taxes/${groupByPayment ? '?group_by_payment=true' : ''}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to load tax report');
+
+  const data = await res.json();
+  console.log("✅ Tax API Data:", data);
+
+  // ---------------------
+  // Update KPI Cards
+  // ---------------------
+  const totalTax = Number(data.total_tax || 0);
+  const saleCount = Number(data.count_of_sales || 0);
+  const avgTax = saleCount > 0 ? totalTax / saleCount : 0;
+
+  document.getElementById('totalTaxAmount').textContent = 'UGx. ' + totalTax.toLocaleString();
+  document.getElementById('taxSalesCount').textContent = saleCount.toLocaleString();
+  document.getElementById('avgTaxPerSale').textContent = 'UGx. ' + avgTax.toLocaleString();
+
+  // ---------------------
+  // Update Table
+  // ---------------------
+  const tbody = document.getElementById('taxTableBody');
+  tbody.innerHTML = '';
+
+  const rows = groupByPayment && data.payment_groups?.length
+    ? data.payment_groups
+    : [{ payment_method: 'All Payments', total_tax: totalTax, count_of_sales: saleCount }];
+
+  rows.forEach(group => {
+    const avg = group.count_of_sales ? group.total_tax / group.count_of_sales : 0;
+    tbody.innerHTML += `
+      <tr>
+        <td><strong>${group.payment_method}</strong></td>
+        <td class="text-end"><strong>UGx. ${group.total_tax.toLocaleString()}</strong></td>
+        <td class="text-end"><strong>${group.count_of_sales.toLocaleString()}</strong></td>
+        <td class="text-end"><strong>UGx. ${avg.toLocaleString()}</strong></td>
+      </tr>
+    `;
+  });
+
+  // ---------------------
+  // Render Charts
+  // ---------------------
+  const chartData = rows;
+  updateTaxCharts(chartData, totalTax);
+
+} catch (err) {
+  console.error('❌ loadTaxReport error:', err);
+  alert('Error loading tax report: ' + err.message);
+  document.getElementById('taxTableBody').innerHTML =
+    '<tr><td colspan="4" class="text-danger text-center">Error loading tax data.</td></tr>';
+  clearTaxCharts();
+}
+}
+
+   
+   
+   
+
 </script>
 
 <style>

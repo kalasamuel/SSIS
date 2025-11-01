@@ -90,7 +90,8 @@ urlpatterns = [
     path('api/kpi-data/', views.kpi_data_api, name='kpi_data_api'),
     path('api/reports/financial/', views.financial_report_api, name='financial_report_api'),
     path('api/reports/expiry/', views.expiry_reports_api, name='expiry_reports_api'),
-
+    path('api/reports/taxes/', views.taxes_report_api, name='taxes_report_api'),
+    
     # Export Endpoints
     path('export/report/', views.export_report, name='export_report'),
     path('export/table/', views.export_table, name='export_table'),

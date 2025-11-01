@@ -2,6 +2,11 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.forms import inlineformset_factory
 from django.contrib import messages
 from django.db import transaction
+from django.db.models.functions import Coalesce , Greatest
+from django.db.models import Sum, F, Value, DecimalField, Count
+from django.http import JsonResponse
+from django.utils.dateparse import parse_date
+
 
 
 from .models import (
@@ -1812,6 +1817,144 @@ def financial_report_api(request):
         'expiry_losses': list(expiry_losses),
         'taxes': list(taxes),
     })
+
+
+# ---------------------------------------------------------
+# TAX REPORT API (sale-level tax)
+# ---------------------------------------------------------
+def taxes_report_api(request):
+    """
+    GET /inventory/api/reports/taxes?start=&end[&rate=][&group_by=payment_method]
+
+    Convention: Sale.total_amount is tax-inclusive.
+
+    Inference per sale when no rate provided:
+      tax = total_amount - sum(details.sub_total) - (discount_applied or 0)
+
+    If rate provided (decimal, e.g., 0.18):
+      tax = rate * max(sum_subtotals - discount_applied, 0)
+
+    Returns JSON with total_tax and count_of_sales.
+    If group_by=payment_method, returns grouped aggregates as well.
+    """
+    try:
+        start = request.GET.get('start')
+        end = request.GET.get('end')
+        rate_param = request.GET.get('rate')
+        group_by = request.GET.get('group_by')
+
+        qs = Sale.objects.select_related('customer', 'staff').prefetch_related('details')
+        if start:
+            # Parse start date and filter correctly
+            try:
+                from datetime import datetime
+                if isinstance(start, str):
+                    start_date = datetime.strptime(start, '%Y-%m-%d').date()
+                else:
+                    start_date = start
+                qs = qs.filter(sale_datetime__date__gte=start_date)
+            except (ValueError, TypeError) as e:
+                pass  # Ignore invalid date formats
+        if end:
+            # Parse end date and filter correctly
+            try:
+                from datetime import datetime
+                if isinstance(end, str):
+                    end_date = datetime.strptime(end, '%Y-%m-%d').date()
+                else:
+                    end_date = end
+                qs = qs.filter(sale_datetime__date__lte=end_date)
+            except (ValueError, TypeError) as e:
+                pass  # Ignore invalid date formats
+
+        # Annotate each sale with sum of subtotals
+        qs = qs.annotate(
+            sum_subtotals=Coalesce(Sum('details__sub_total'), Value(0), output_field=DecimalField(max_digits=18, decimal_places=2)),
+            discount_amt=Coalesce(F('discount_applied'), Value(0), output_field=DecimalField(max_digits=18, decimal_places=2))
+        )
+
+        # Calculate tax per sale
+        if rate_param is not None and rate_param != '':
+            try:
+                rate_decimal = Decimal(str(rate_param))
+                if rate_decimal < 0 or rate_decimal > 1:
+                    return JsonResponse({'error': 'Rate must be between 0 and 1'}, status=400)
+            except (ValueError, TypeError):
+                return JsonResponse({'error': 'Invalid rate parameter. Must be a decimal number (e.g., 0.18 for 18%)'}, status=400)
+            
+            # Tax = rate * max(sum_subtotals - discount_applied, 0)
+            base_amount = ExpressionWrapper(
+                F('sum_subtotals') - F('discount_amt'),
+                output_field=DecimalField(max_digits=18, decimal_places=2)
+            )
+            positive_base = Greatest(base_amount, Value(0, output_field=DecimalField(max_digits=18, decimal_places=2)))
+            tax_expr = ExpressionWrapper(
+                positive_base * Value(rate_decimal, output_field=DecimalField(max_digits=18, decimal_places=6)),
+                output_field=DecimalField(max_digits=18, decimal_places=2)
+            )
+        else:
+            # Tax inference: tax = total_amount - sum_subtotals - discount_applied
+            tax_expr = ExpressionWrapper(
+                F('total_amount') - F('sum_subtotals') - F('discount_amt'),
+                output_field=DecimalField(max_digits=18, decimal_places=2)
+            )
+
+        # Annotate each sale with calculated tax
+        qs = qs.annotate(calculated_tax=tax_expr)
+
+        if group_by == 'payment_method':
+            # Check if there are any sales first
+            if not qs.exists():
+                return JsonResponse({
+                    'total_tax': 0.0,
+                    'count_of_sales': 0,
+                    'groups': []
+                })
+            
+            # Group by payment method and aggregate
+            grouped = (
+                qs.values('payment_method')
+                  .annotate(
+                      total_tax=Sum('calculated_tax'),
+                      count_of_sales=Count('id')
+                  )
+                  .order_by('payment_method')
+            )
+            groups = [
+                {
+                    'payment_method': g['payment_method'],
+                    'total_tax': float(g['total_tax'] or 0),
+                    'count_of_sales': int(g['count_of_sales'] or 0),
+                }
+                for g in grouped
+            ]
+            total_tax = sum(item['total_tax'] for item in groups)
+            count_of_sales = sum(item['count_of_sales'] for item in groups)
+            return JsonResponse({
+                'total_tax': float(total_tax),
+                'count_of_sales': int(count_of_sales),
+                'groups': groups
+            })
+
+        # Aggregate totals (for non-grouped requests)
+        agg = qs.aggregate(
+            total_tax=Sum('calculated_tax'),
+            count_of_sales=Count('id')
+        )
+        return JsonResponse({
+            'total_tax': float(agg.get('total_tax') or 0),
+            'count_of_sales': int(agg.get('count_of_sales') or 0),
+        })
+    
+    except Exception as e:
+        # Return JSON error instead of HTML error page
+        import traceback
+        error_details = str(e)
+        # In production, you might want to log the traceback instead of exposing it
+        return JsonResponse({
+            'error': f'An error occurred while processing tax report: {error_details}',
+            'details': traceback.format_exc() if settings.DEBUG else None
+        }, status=500)
 
 # ---------------------------------------------------------
 # 📄 EXPORT VIEWS
