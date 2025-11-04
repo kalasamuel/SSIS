@@ -1,0 +1,671 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Product Management - Supermarket DBMS{% endblock %}
+{% block content %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2>Product Management</h2>
+    <p class="text-muted mb-0">Manage product catalog, inventory, and pricing</p>
+  </div>
+  <div class="btn-group">
+    <a href="{% url 'create_product' %}" class="btn btn-primary">
+      <i class="fas fa-plus me-2"></i>Add Product
+    </a>
+    <button class="btn btn-outline-secondary" onclick="printProducts()">
+      <i class="fas fa-print me-2"></i>Print
+    </button>
+    <button class="btn btn-outline-info" onclick="exportProducts()">
+      <i class="fas fa-download me-2"></i>Export
+    </button>
+  </div>
+</div>
+
+
+
+<!-- Filters and Search -->
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label">Search Products</label>
+        <input type="text" class="form-control" id="productSearch" placeholder="Search by name, brand, category...">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Category</label>
+        <select id="categoryFilter" class="form-select">
+          <option value="">All Categories</option>
+          <!-- Categories will be populated by JavaScript -->
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Supplier</label>
+        <select id="supplierFilter" class="form-select">
+          <option value="">All Suppliers</option>
+          <!-- Suppliers will be populated by JavaScript -->
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Stock Status</label>
+        <select id="stockFilter" class="form-select">
+          <option value="">All</option>
+          <option value="in-stock">In Stock</option>
+          <option value="low-stock">Low Stock</option>
+          <option value="out-of-stock">Out of Stock</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <button class="btn btn-primary w-100" onclick="applyFilters()">
+          <i class="fas fa-filter me-2"></i>Apply Filters
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Products Table -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">Product Catalog</h5>
+    <div class="btn-group btn-group-sm">
+      <button class="btn btn-outline-primary" onclick="refreshProducts()">
+        <i class="fas fa-sync me-1"></i>Refresh
+      </button>
+      <button class="btn btn-outline-secondary" onclick="selectAllProducts()">
+        <i class="fas fa-check-square me-1"></i>Select All
+      </button>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    {% if products %}
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="productsTable">
+        <thead class="table-light">
+          <tr>
+            <th>
+              <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()">
+            </th>
+            <th>Product</th>
+            <th>Category</th>
+            <th>Supplier</th>
+            <th>Stock</th>
+            <th>Unit Cost</th>
+            <th>Retail Price</th>
+            <th>Expiry Date</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in products %}
+          <tr>
+            <td>
+              <input type="checkbox" class="product-checkbox" value="{{ p.pk }}">
+            </td>
+            <td>
+              <div class="d-flex align-items-center">
+                <div class="avatar-sm bg-primary rounded-circle d-flex align-items-center justify-content-center me-2">
+                  <i class="fas fa-box text-white"></i>
+                </div>
+                <div>
+                  <h6 class="mb-0">{{ p.product_name }}</h6>
+                  <small class="text-muted">{{ p.brand|default:"No brand" }} - {{ p.unit }}</small>
+                </div>
+              </div>
+            </td>
+            <td>
+              <span class="badge bg-info">{{ p.category.category_name }}</span>
+            </td>
+            <td>{{ p.supplier.supplier_name }}</td>
+            <td>
+              <div class="text-end">
+                <span class="fw-bold {% if p.stock_quantity == 0 %}text-danger{% elif p.stock_quantity <= p.reorder_level %}text-warning{% else %}text-success{% endif %}">
+                  {{ p.stock_quantity }}
+                </span>
+                <small class="text-muted d-block">Reorder: {{ p.reorder_level }}</small>
+              </div>
+            </td>
+            <td class="text-end">UGx. {{ p.unit_cost|floatformat:0 }}</td>
+            <td class="text-end">UGx. {{ p.retail_price|floatformat:0 }}</td>
+            <td>
+              {% if p.expiry_date %}
+                <span class="{% if p.expiry_date|timeuntil|slice:':1' == '-' %}text-danger{% elif p.expiry_date|timeuntil|slice:':7' == '7 days' %}text-warning{% else %}text-success{% endif %}">
+                  {{ p.expiry_date|date:"M d, Y" }}
+                </span>
+              {% else %}
+                <span class="text-muted">No expiry</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if p.stock_quantity == 0 %}
+                <span class="badge bg-danger">Out of Stock</span>
+              {% elif p.stock_quantity <= p.reorder_level %}
+                <span class="badge bg-warning">Low Stock</span>
+              {% else %}
+                <span class="badge bg-success">In Stock</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-primary" onclick="viewProductDetails({{ p.pk }})" title="View Details">
+                  <i class="fas fa-eye"></i>
+                </button>
+                <a href="{% url 'edit_product' p.pk %}" class="btn btn-outline-warning" title="Edit Product">
+                  <i class="fas fa-edit"></i>
+                </a>
+                <button class="btn btn-outline-danger" onclick="deleteProduct({{ p.pk }})" title="Delete Product">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="table-light">
+          <tr>
+            <th colspan="4">Totals:</th>
+            <th class="text-end" id="totalStock">0</th>
+            <th class="text-end" id="totalCost">UGx. 0</th>
+            <th class="text-end" id="totalValue">UGx. 0</th>
+            <th colspan="3"></th>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5">
+      <i class="fas fa-boxes fa-3x text-muted mb-3"></i>
+      <h5 class="text-muted">No Products Found</h5>
+      <p class="text-muted">Start by adding your first product to the catalog.</p>
+      <a href="{% url 'create_product' %}" class="btn btn-primary">
+        <i class="fas fa-plus me-2"></i>Add First Product
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Bulk Actions Bar -->
+<div class="card mt-3" id="bulkActionsBar" style="display: none;">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center">
+      <div>
+        <span id="selectedCount" class="fw-bold">0</span> products selected
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-outline-primary" onclick="bulkEdit()">
+          <i class="fas fa-edit me-2"></i>Bulk Edit
+        </button>
+        <button class="btn btn-outline-danger" onclick="bulkDelete()">
+          <i class="fas fa-trash me-2"></i>Bulk Delete
+        </button>
+        <button class="btn btn-outline-secondary" onclick="clearSelection()">
+          <i class="fas fa-times me-2"></i>Clear Selection
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteModalLabel">Confirm Delete</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete this product?</p>
+        <div class="alert alert-warning">
+          <i class="fas fa-exclamation-triangle me-2"></i>
+          <strong>Warning:</strong> This action cannot be undone. All associated sales and inventory records will be affected.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Delete Product</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Product Details Modal -->
+<div class="modal fade" id="productDetailsModal" tabindex="-1" aria-labelledby="productDetailsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="productDetailsModalLabel">Product Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="productDetailsBody">
+        <!-- Content will be loaded dynamically -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" id="editProductBtn">Edit Product</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Font Awesome for icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+<script>
+// Global variables
+let products = [];
+let categories = [];
+let suppliers = [];
+let filteredProducts = [];
+let deleteProductId = null;
+
+// Initialize product data
+function initializeProductData() {
+  products = [
+    {% for p in products %}
+    {
+      id: {{ p.pk }},
+      product_name: '{{ p.product_name|escapejs }}',
+      brand: '{{ p.brand|escapejs }}',
+      unit: '{{ p.unit|escapejs }}',
+      category_name: '{{ p.category.category_name|escapejs }}',
+      category_id: {{ p.category.id }},
+      supplier_name: '{{ p.supplier.supplier_name|escapejs }}',
+      supplier_id: {{ p.supplier.id }},
+      stock_quantity: {{ p.stock_quantity }},
+      reorder_level: {{ p.reorder_level }},
+      unit_cost: {{ p.unit_cost }},
+      retail_price: {{ p.retail_price }},
+      expiry_date: '{% if p.expiry_date %}{{ p.expiry_date|date:"Y-m-d" }}{% endif %}',
+      batch_number: '{{ p.batch_number|escapejs }}'
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+  ];
+  
+  // Extract unique categories and suppliers
+  categories = [...new Set(products.map(p => ({id: p.category_id, name: p.category_name})))]
+    .sort((a, b) => a.name.localeCompare(b.name));
+  suppliers = [...new Set(products.map(p => ({id: p.supplier_id, name: p.supplier_name})))]
+    .sort((a, b) => a.name.localeCompare(b.name));
+  
+  filteredProducts = [...products];
+  calculateSummary();
+  populateFilters();
+  displayProductsTable();
+}
+
+// Calculate summary statistics
+function calculateSummary() {
+  const totalProducts = products.length;
+  const inStock = products.filter(p => p.stock_quantity > p.reorder_level).length;
+  const lowStock = products.filter(p => p.stock_quantity <= p.reorder_level && p.stock_quantity > 0).length;
+  const outOfStock = products.filter(p => p.stock_quantity === 0).length;
+  
+  document.getElementById('totalProducts').textContent = totalProducts.toLocaleString();
+  document.getElementById('inStockProducts').textContent = inStock.toLocaleString();
+  document.getElementById('lowStockProducts').textContent = lowStock.toLocaleString();
+  document.getElementById('outOfStockProducts').textContent = outOfStock.toLocaleString();
+  
+  // Calculate table totals
+  const totalStock = filteredProducts.reduce((sum, p) => sum + p.stock_quantity, 0);
+  const totalCost = filteredProducts.reduce((sum, p) => sum + (p.unit_cost * p.stock_quantity), 0);
+  const totalValue = filteredProducts.reduce((sum, p) => sum + (p.retail_price * p.stock_quantity), 0);
+  
+  document.getElementById('totalStock').textContent = totalStock.toLocaleString();
+  document.getElementById('totalCost').textContent = 'UGx. ' + totalCost.toLocaleString();
+  document.getElementById('totalValue').textContent = 'UGx. ' + totalValue.toLocaleString();
+}
+
+// Populate filter dropdowns
+function populateFilters() {
+  const categorySelect = document.getElementById('categoryFilter');
+  const supplierSelect = document.getElementById('supplierFilter');
+  
+  // Clear existing options
+  categorySelect.innerHTML = '<option value="">All Categories</option>';
+  supplierSelect.innerHTML = '<option value="">All Suppliers</option>';
+  
+  // Add categories
+  categories.forEach(category => {
+    const option = document.createElement('option');
+    option.value = category.id;
+    option.textContent = category.name;
+    categorySelect.appendChild(option);
+  });
+  
+  // Add suppliers
+  suppliers.forEach(supplier => {
+    const option = document.createElement('option');
+    option.value = supplier.id;
+    option.textContent = supplier.name;
+    supplierSelect.appendChild(option);
+  });
+}
+
+// Apply filters
+function applyFilters() {
+  const searchTerm = document.getElementById('productSearch').value.toLowerCase();
+  const categoryFilter = document.getElementById('categoryFilter').value;
+  const supplierFilter = document.getElementById('supplierFilter').value;
+  const stockFilter = document.getElementById('stockFilter').value;
+  
+  filteredProducts = products.filter(product => {
+    const matchesSearch = !searchTerm || 
+      product.product_name.toLowerCase().includes(searchTerm) ||
+      product.brand.toLowerCase().includes(searchTerm) ||
+      product.category_name.toLowerCase().includes(searchTerm);
+    
+    const matchesCategory = !categoryFilter || product.category_id == categoryFilter;
+    const matchesSupplier = !supplierFilter || product.supplier_id == supplierFilter;
+    
+    const matchesStock = !stockFilter || 
+      (stockFilter === 'in-stock' && product.stock_quantity > product.reorder_level) ||
+      (stockFilter === 'low-stock' && product.stock_quantity <= product.reorder_level && product.stock_quantity > 0) ||
+      (stockFilter === 'out-of-stock' && product.stock_quantity === 0);
+    
+    return matchesSearch && matchesCategory && matchesSupplier && matchesStock;
+  });
+  
+  displayProductsTable();
+  calculateSummary();
+}
+
+// Display products table
+function displayProductsTable() {
+  const tbody = document.querySelector('#productsTable tbody');
+  if (!tbody) return;
+  
+  tbody.innerHTML = filteredProducts.map(product => {
+    const stockStatus = getStockStatus(product.stock_quantity, product.reorder_level);
+    const statusBadge = getStatusBadge(stockStatus);
+    const stockClass = stockStatus === 'out-of-stock' ? 'text-danger' : 
+                      stockStatus === 'low-stock' ? 'text-warning' : 'text-success';
+    
+    return `
+      <tr>
+        <td>
+          <input type="checkbox" class="product-checkbox" value="${product.id}">
+        </td>
+        <td>
+          <div class="d-flex align-items-center">
+            <div class="avatar-sm bg-primary rounded-circle d-flex align-items-center justify-content-center me-2">
+              <i class="fas fa-box text-white"></i>
+            </div>
+            <div>
+              <h6 class="mb-0">${product.product_name}</h6>
+              <small class="text-muted">${product.brand || 'No brand'} - ${product.unit}</small>
+            </div>
+          </div>
+        </td>
+        <td>
+          <span class="badge bg-info">${product.category_name}</span>
+        </td>
+        <td>${product.supplier_name}</td>
+        <td>
+          <div class="text-end">
+            <span class="fw-bold ${stockClass}">${product.stock_quantity}</span>
+            <small class="text-muted d-block">Reorder: ${product.reorder_level}</small>
+          </div>
+        </td>
+        <td class="text-end">UGx. ${product.unit_cost.toLocaleString()}</td>
+        <td class="text-end">UGx. ${product.retail_price.toLocaleString()}</td>
+        <td>
+          ${product.expiry_date ? 
+            `<span class="text-success">${new Date(product.expiry_date).toLocaleDateString()}</span>` : 
+            '<span class="text-muted">No expiry</span>'}
+        </td>
+        <td>${statusBadge}</td>
+        <td>
+          <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-primary" onclick="viewProductDetails(${product.id})" title="View Details">
+              <i class="fas fa-eye"></i>
+            </button>
+            <a href="/products/${product.id}/edit/" class="btn btn-outline-warning" title="Edit Product">
+              <i class="fas fa-edit"></i>
+            </a>
+            <button class="btn btn-outline-danger" onclick="deleteProduct(${product.id})" title="Delete Product">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  
+  // Update checkbox states
+  updateCheckboxStates();
+}
+
+// Get stock status
+function getStockStatus(currentStock, reorderLevel) {
+  if (currentStock === 0) return 'out-of-stock';
+  if (currentStock <= reorderLevel) return 'low-stock';
+  return 'in-stock';
+}
+
+// Get status badge
+function getStatusBadge(status) {
+  const badges = {
+    'in-stock': '<span class="badge bg-success">In Stock</span>',
+    'low-stock': '<span class="badge bg-warning">Low Stock</span>',
+    'out-of-stock': '<span class="badge bg-danger">Out of Stock</span>'
+  };
+  return badges[status] || '<span class="badge bg-secondary">Unknown</span>';
+}
+
+// Toggle select all
+function toggleSelectAll() {
+  const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+  const productCheckboxes = document.querySelectorAll('.product-checkbox');
+  
+  productCheckboxes.forEach(checkbox => {
+    checkbox.checked = selectAllCheckbox.checked;
+  });
+  
+  updateSelectionUI();
+}
+
+// Update checkbox states
+function updateCheckboxStates() {
+  const productCheckboxes = document.querySelectorAll('.product-checkbox');
+  const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+  
+  if (productCheckboxes.length === 0) return;
+  
+  const checkedCount = document.querySelectorAll('.product-checkbox:checked').length;
+  selectAllCheckbox.checked = checkedCount === productCheckboxes.length;
+  selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < productCheckboxes.length;
+  
+  updateSelectionUI();
+}
+
+// Update selection UI
+function updateSelectionUI() {
+  const checkedCount = document.querySelectorAll('.product-checkbox:checked').length;
+  const bulkActionsBar = document.getElementById('bulkActionsBar');
+  const selectedCount = document.getElementById('selectedCount');
+  
+  if (checkedCount > 0) {
+    bulkActionsBar.style.display = 'block';
+    selectedCount.textContent = checkedCount;
+  } else {
+    bulkActionsBar.style.display = 'none';
+  }
+}
+
+// Select all products
+function selectAllProducts() {
+  document.getElementById('selectAllCheckbox').checked = true;
+  toggleSelectAll();
+}
+
+// Clear selection
+function clearSelection() {
+  document.getElementById('selectAllCheckbox').checked = false;
+  toggleSelectAll();
+}
+
+// Delete product
+function deleteProduct(productId) {
+  deleteProductId = productId;
+  const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+  modal.show();
+}
+
+// Confirm delete
+document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+  if (deleteProductId) {
+    // Create and submit delete form
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = `/products/${deleteProductId}/delete/`;
+    
+    // Add CSRF token
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]');
+    if (csrfToken) {
+      const csrfInput = document.createElement('input');
+      csrfInput.type = 'hidden';
+      csrfInput.name = 'csrfmiddlewaretoken';
+      csrfInput.value = csrfToken.value;
+      form.appendChild(csrfInput);
+    }
+    
+    document.body.appendChild(form);
+    form.submit();
+  }
+});
+
+// View product details
+function viewProductDetails(productId) {
+  const product = products.find(p => p.id === productId);
+  if (!product) return;
+  
+  const modalBody = document.getElementById('productDetailsBody');
+  modalBody.innerHTML = `
+    <div class="row">
+      <div class="col-md-6">
+        <h6>Product Information</h6>
+        <p><strong>Name:</strong> ${product.product_name}</p>
+        <p><strong>Brand:</strong> ${product.brand || 'N/A'}</p>
+        <p><strong>Unit:</strong> ${product.unit}</p>
+        <p><strong>Category:</strong> ${product.category_name}</p>
+        <p><strong>Supplier:</strong> ${product.supplier_name}</p>
+        ${product.batch_number ? `<p><strong>Batch Number:</strong> ${product.batch_number}</p>` : ''}
+      </div>
+      <div class="col-md-6">
+        <h6>Inventory & Pricing</h6>
+        <p><strong>Current Stock:</strong> ${product.stock_quantity}</p>
+        <p><strong>Reorder Level:</strong> ${product.reorder_level}</p>
+        <p><strong>Unit Cost:</strong> UGx. ${product.unit_cost.toLocaleString()}</p>
+        <p><strong>Retail Price:</strong> UGx. ${product.retail_price.toLocaleString()}</p>
+        <p><strong>Expiry Date:</strong> ${product.expiry_date ? new Date(product.expiry_date).toLocaleDateString() : 'No expiry'}</p>
+        <p><strong>Status:</strong> ${getStatusBadge(getStockStatus(product.stock_quantity, product.reorder_level))}</p>
+      </div>
+    </div>
+  `;
+  
+  // Set edit button action
+  document.getElementById('editProductBtn').onclick = function() {
+    window.location.href = `/products/${productId}/edit/`;
+  };
+  
+  const modal = new bootstrap.Modal(document.getElementById('productDetailsModal'));
+  modal.show();
+}
+
+// Bulk edit
+function bulkEdit() {
+  const selectedIds = Array.from(document.querySelectorAll('.product-checkbox:checked')).map(cb => cb.value);
+  if (selectedIds.length === 0) {
+    alert('Please select products to edit.');
+    return;
+  }
+  alert(`Bulk edit for ${selectedIds.length} products (feature to be implemented)`);
+}
+
+// Bulk delete
+function bulkDelete() {
+  const selectedIds = Array.from(document.querySelectorAll('.product-checkbox:checked')).map(cb => cb.value);
+  if (selectedIds.length === 0) {
+    alert('Please select products to delete.');
+    return;
+  }
+  if (confirm(`Are you sure you want to delete ${selectedIds.length} products?`)) {
+    alert('Bulk delete feature to be implemented');
+  }
+}
+
+// Export products
+function exportProducts() {
+  window.open('/products/export/?format=csv', '_blank');
+}
+
+// Print products
+function printProducts() {
+  window.print();
+}
+
+// Refresh products
+function refreshProducts() {
+  location.reload();
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+  initializeProductData();
+  
+  // Add event listeners
+  document.getElementById('productSearch').addEventListener('input', applyFilters);
+  document.getElementById('categoryFilter').addEventListener('change', applyFilters);
+  document.getElementById('supplierFilter').addEventListener('change', applyFilters);
+  document.getElementById('stockFilter').addEventListener('change', applyFilters);
+  
+  // Add checkbox event listeners
+  document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('product-checkbox')) {
+      updateCheckboxStates();
+    }
+  });
+});
+</script>
+
+<style>
+.avatar-sm {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
+
+@media print {
+  .btn, .modal, .card-header .btn-group, #bulkActionsBar {
+    display: none !important;
+  }
+  
+  .card {
+    border: none !important;
+    box-shadow: none !important;
+  }
+}
+
+.table th {
+  border-top: none;
+}
+
+.badge {
+  font-size: 0.75em;
+}
+
+.text-success { color: #28a745 !important; }
+.text-warning { color: #ffc107 !important; }
+.text-danger { color: #dc3545 !important; }
+.text-info { color: #17a2b8 !important; }
+
+#bulkActionsBar {
+  position: sticky;
+  bottom: 20px;
+  z-index: 1000;
+}
+</style>
+
+{% endblock %}

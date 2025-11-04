@@ -1,0 +1,87 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Sale Detail{% endblock %}
+{% block content %}
+<h2>Sale {{ sale.receipt_no }}</h2>
+<p><strong>Date:</strong> {{ sale.sale_datetime }} &nbsp; <strong>Staff:</strong> {{ sale.staff }}</p>
+<div class="d-flex gap-2 mb-3">
+<input id="detailSearch" class="form-control" type="text" placeholder="Search items... (product, qty, price)">
+<select id="productFilter" class="form-select" style="max-width:220px">
+<option value="">All products</option>
+</select>
+</div>
+<table class="table" id="detailsTable">
+<thead><tr><th>Product</th><th>Qty</th><th>Unit Price</th><th>Sub-total</th></tr></thead>
+<tbody>
+{% for d in details %}
+<tr>
+<td>{{ d.product.product_name }}</td>
+<td>{{ d.quantity_sold }}</td>
+<td>UGX {{ d.unit_price|floatformat:0 }}</td>
+<td>UGX {{ d.sub_total|floatformat:0 }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+<p class="text-end"><strong>Total: </strong> UGX {{ sale.total_amount|floatformat:0 }}</p>
+<script>
+(function() {
+const table = document.getElementById('detailsTable');
+if (!table) return;
+const tbody = table.querySelector('tbody');
+const rows = Array.from(tbody.querySelectorAll('tr'));
+const searchInput = document.getElementById('detailSearch');
+const productSelect = document.getElementById('productFilter');
+
+// Build product options from existing rows (1st column)
+const productSet = new Set();
+rows.forEach(r => {
+  const cells = r.querySelectorAll('td');
+  if (cells.length >= 1) {
+    const product = (cells[0].textContent || '').trim();
+    if (product && cells.length === 4) productSet.add(product);
+  }
+});
+Array.from(productSet).sort((a,b) => a.localeCompare(b)).forEach(p => {
+  const opt = document.createElement('option');
+  opt.value = p;
+  opt.textContent = p;
+  productSelect.appendChild(opt);
+});
+
+// Client-side empty state row
+let emptyRow = document.createElement('tr');
+emptyRow.setAttribute('data-empty', 'true');
+let td = document.createElement('td');
+td.colSpan = 4;
+td.textContent = 'No matching items.';
+emptyRow.appendChild(td);
+emptyRow.style.display = 'none';
+tbody.appendChild(emptyRow);
+
+function normalize(s){
+  return (s || '').toString().toLowerCase();
+}
+
+function applyFilter() {
+  const q = normalize(searchInput.value);
+  const selectedProduct = productSelect.value;
+  let visibleCount = 0;
+  rows.forEach(r => {
+    const cells = r.querySelectorAll('td');
+    if (cells.length !== 4) { r.style.display = 'none'; return; }
+    const product = (cells[0].textContent || '').trim();
+    const rowText = normalize(r.textContent);
+    const matchesSearch = q === '' || rowText.includes(q);
+    const matchesProduct = !selectedProduct || product === selectedProduct;
+    const show = matchesSearch && matchesProduct;
+    r.style.display = show ? '' : 'none';
+    if (show) visibleCount++;
+  });
+  emptyRow.style.display = visibleCount === 0 ? '' : 'none';
+}
+
+searchInput.addEventListener('input', applyFilter);
+productSelect.addEventListener('change', applyFilter);
+})();
+</script>
+{% endblock %}

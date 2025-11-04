@@ -1,0 +1,336 @@
+{% extends 'inventory/base.html' %}
+{% block title %}{% if discount %}Edit{% else %}Add{% endif %} Discount Scheme - Supermarket DBMS{% endblock %}
+{% block content %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2>{% if discount %}Edit{% else %}Add{% endif %} Discount Scheme</h2>
+    <p class="text-muted mb-0">{% if discount %}Update discount scheme: {{ discount.discount_name }}{% else %}Create a new promotional discount scheme{% endif %}</p>
+  </div>
+  <a href="{% url 'discount_list' %}" class="btn btn-outline-secondary">
+    <i class="fas fa-arrow-left me-2"></i>Back to Discounts
+  </a>
+</div>
+
+<!-- Discount Form -->
+<div class="row">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">Discount Information</h5>
+      </div>
+      <div class="card-body">
+        <form method="post" id="discountForm">
+          {% csrf_token %}
+          
+          <!-- Discount Name -->
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label for="{{ form.discount_name.id_for_label }}" class="form-label">
+                <i class="fas fa-tag me-2"></i>Discount Name <span class="text-danger">*</span>
+              </label>
+              {{ form.discount_name }}
+              {% if form.discount_name.errors %}
+                <div class="text-danger small mt-1">{{ form.discount_name.errors.0 }}</div>
+              {% endif %}
+              <small class="form-text text-muted">e.g., "Summer Sale 25% Off"</small>
+            </div>
+            <div class="col-md-6">
+              <label for="{{ form.discount_type.id_for_label }}" class="form-label">
+                <i class="fas fa-percentage me-2"></i>Discount Type <span class="text-danger">*</span>
+              </label>
+              {{ form.discount_type }}
+              {% if form.discount_type.errors %}
+                <div class="text-danger small mt-1">{{ form.discount_type.errors.0 }}</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Discount Value -->
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label for="{{ form.value.id_for_label }}" class="form-label">
+                <i class="fas fa-money-bill-wave me-2"></i>Discount Value <span class="text-danger">*</span>
+              </label>
+              <div class="input-group">
+                <span class="input-group-text" id="valueSuffix">%</span>
+                {{ form.value }}
+              </div>
+              {% if form.value.errors %}
+                <div class="text-danger small mt-1">{{ form.value.errors.0 }}</div>
+              {% endif %}
+              <small class="form-text text-muted" id="valueHelp">Percentage or fixed amount</small>
+            </div>
+            <div class="col-md-6">
+              <label for="{{ form.is_active.id_for_label }}" class="form-label">
+                <i class="fas fa-toggle-on me-2"></i>Status
+              </label>
+              <div class="form-check form-switch">
+                {{ form.is_active }}
+                <label class="form-check-label" for="{{ form.is_active.id_for_label }}">
+                  Active Discount
+                </label>
+              </div>
+              {% if form.is_active.errors %}
+                <div class="text-danger small mt-1">{{ form.is_active.errors.0 }}</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Date Range -->
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label for="{{ form.start_date.id_for_label }}" class="form-label">
+                <i class="fas fa-calendar-alt me-2"></i>Start Date <span class="text-danger">*</span>
+              </label>
+              {{ form.start_date }}
+              {% if form.start_date.errors %}
+                <div class="text-danger small mt-1">{{ form.start_date.errors.0 }}</div>
+              {% endif %}
+            </div>
+            <div class="col-md-6">
+              <label for="{{ form.end_date.id_for_label }}" class="form-label">
+                <i class="fas fa-calendar-alt me-2"></i>End Date <span class="text-danger">*</span>
+              </label>
+              {{ form.end_date }}
+              {% if form.end_date.errors %}
+                <div class="text-danger small mt-1">{{ form.end_date.errors.0 }}</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Form Actions -->
+          <div class="d-flex justify-content-between">
+            <a href="{% url 'discount_list' %}" class="btn btn-secondary">
+              <i class="fas fa-times me-2"></i>Cancel
+            </a>
+            <button type="submit" class="btn btn-primary">
+              <i class="fas fa-save me-2"></i>{% if discount %}Update{% else %}Create{% endif %} Discount
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Discount Preview -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">Discount Preview</h5>
+      </div>
+      <div class="card-body">
+        <div class="discount-preview">
+          <div class="text-center mb-3">
+            <div class="discount-badge bg-primary text-white rounded-circle d-inline-flex align-items-center justify-content-center mb-2" style="width: 80px; height: 80px;">
+              <span id="previewValue">0%</span>
+            </div>
+            <h6 id="previewName">Discount Name</h6>
+            <p class="text-muted mb-0" id="previewType">Percentage Discount</p>
+          </div>
+          
+          <div class="preview-details">
+            <div class="d-flex justify-content-between mb-2">
+              <span>Start Date:</span>
+              <span id="previewStart">Not set</span>
+            </div>
+            <div class="d-flex justify-content-between mb-2">
+              <span>End Date:</span>
+              <span id="previewEnd">Not set</span>
+            </div>
+            <div class="d-flex justify-content-between mb-2">
+              <span>Status:</span>
+              <span id="previewStatus" class="badge bg-secondary">Inactive</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Templates -->
+    <div class="card mt-3">
+      <div class="card-header">
+        <h5 class="mb-0">Quick Templates</h5>
+      </div>
+      <div class="card-body">
+        <div class="d-grid gap-2">
+          <button type="button" class="btn btn-outline-primary btn-sm" onclick="applyTemplate('percentage')">
+            <i class="fas fa-percentage me-1"></i>Percentage Sale
+          </button>
+          <button type="button" class="btn btn-outline-info btn-sm" onclick="applyTemplate('fixed')">
+            <i class="fas fa-dollar-sign me-1"></i>Fixed Amount
+          </button>
+          <button type="button" class="btn btn-outline-warning btn-sm" onclick="applyTemplate('bogo')">
+            <i class="fas fa-gift me-1"></i>Buy One Get One
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Auto-Application Info -->
+    <div class="card mt-3">
+      <div class="card-header">
+        <h5 class="mb-0">Auto-Application</h5>
+      </div>
+      <div class="card-body">
+        <div class="alert alert-info">
+          <i class="fas fa-magic me-2"></i>
+          <strong>Automatic Application:</strong> This discount will be automatically applied to eligible sales transactions during the validity period.
+        </div>
+        <small class="text-muted">
+          <i class="fas fa-info-circle me-1"></i>
+          Discounts are applied based on the sale total and customer eligibility.
+        </small>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Font Awesome for icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+<script>
+// Update preview based on form inputs
+function updatePreview() {
+  const name = document.getElementById('id_discount_name').value || 'Discount Name';
+  const type = document.getElementById('id_discount_type').value || 'Percentage';
+  const value = document.getElementById('id_value').value || '0';
+  const startDate = document.getElementById('id_start_date').value;
+  const endDate = document.getElementById('id_end_date').value;
+  const isActive = document.getElementById('id_is_active').checked;
+  
+  // Update preview elements
+  document.getElementById('previewName').textContent = name;
+  document.getElementById('previewType').textContent = type + ' Discount';
+  document.getElementById('previewValue').textContent = type === 'Percentage' ? value + '%' : 'UGx. ' + value;
+  document.getElementById('previewStart').textContent = startDate ? new Date(startDate).toLocaleDateString() : 'Not set';
+  document.getElementById('previewEnd').textContent = endDate ? new Date(endDate).toLocaleDateString() : 'Not set';
+  
+  const statusBadge = document.getElementById('previewStatus');
+  statusBadge.textContent = isActive ? 'Active' : 'Inactive';
+  statusBadge.className = 'badge ' + (isActive ? 'bg-success' : 'bg-secondary');
+  
+  // Update value suffix and help text
+  const valueSuffix = document.getElementById('valueSuffix');
+  const valueHelp = document.getElementById('valueHelp');
+  
+  if (type === 'Percentage') {
+    valueSuffix.textContent = '%';
+    valueHelp.textContent = 'Enter percentage (e.g., 25 for 25%)';
+  } else if (type === 'Fixed') {
+    valueSuffix.textContent = 'UGx.';
+    valueHelp.textContent = 'Enter fixed amount in UGx';
+  } else if (type === 'BOGO') {
+    valueSuffix.textContent = 'Free';
+    valueHelp.textContent = 'Buy One Get One Free offer';
+  }
+}
+
+// Apply quick templates
+function applyTemplate(template) {
+  const today = new Date();
+  const nextMonth = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+  
+  switch(template) {
+    case 'percentage':
+      document.getElementById('id_discount_name').value = 'Percentage Sale';
+      document.getElementById('id_discount_type').value = 'Percentage';
+      document.getElementById('id_value').value = '20';
+      break;
+    case 'fixed':
+      document.getElementById('id_discount_name').value = 'Fixed Amount Off';
+      document.getElementById('id_discount_type').value = 'Fixed';
+      document.getElementById('id_value').value = '5000';
+      break;
+    case 'bogo':
+      document.getElementById('id_discount_name').value = 'Buy One Get One';
+      document.getElementById('id_discount_type').value = 'BOGO';
+      document.getElementById('id_value').value = '1';
+      break;
+  }
+  
+  // Set default dates
+  document.getElementById('id_start_date').value = today.toISOString().split('T')[0];
+  document.getElementById('id_end_date').value = nextMonth.toISOString().split('T')[0];
+  document.getElementById('id_is_active').checked = true;
+  
+  updatePreview();
+}
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', function() {
+  // Add event listeners for real-time preview
+  document.getElementById('id_discount_name').addEventListener('input', updatePreview);
+  document.getElementById('id_discount_type').addEventListener('change', updatePreview);
+  document.getElementById('id_value').addEventListener('input', updatePreview);
+  document.getElementById('id_start_date').addEventListener('change', updatePreview);
+  document.getElementById('id_end_date').addEventListener('change', updatePreview);
+  document.getElementById('id_is_active').addEventListener('change', updatePreview);
+  
+  // Initial preview update
+  updatePreview();
+  
+  // Set minimum date to today
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('id_start_date').setAttribute('min', today);
+  document.getElementById('id_end_date').setAttribute('min', today);
+});
+
+// Form validation
+document.getElementById('discountForm').addEventListener('submit', function(e) {
+  const startDate = new Date(document.getElementById('id_start_date').value);
+  const endDate = new Date(document.getElementById('id_end_date').value);
+  const value = parseFloat(document.getElementById('id_value').value);
+  const type = document.getElementById('id_discount_type').value;
+  
+  if (endDate <= startDate) {
+    e.preventDefault();
+    alert('End date must be after start date');
+    return false;
+  }
+  
+  if (value <= 0) {
+    e.preventDefault();
+    alert('Discount value must be greater than 0');
+    return false;
+  }
+  
+  if (type === 'Percentage' && value > 100) {
+    e.preventDefault();
+    alert('Percentage discount cannot exceed 100%');
+    return false;
+  }
+});
+</script>
+
+<style>
+.discount-badge {
+  font-size: 1.2em;
+  font-weight: bold;
+}
+
+.form-control:focus, .form-select:focus {
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+.card {
+  border-radius: 0.5rem;
+  box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.btn {
+  border-radius: 0.375rem;
+}
+
+.preview-details {
+  font-size: 0.9em;
+}
+
+.alert {
+  border-radius: 0.375rem;
+}
+</style>
+
+{% endblock %}

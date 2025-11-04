@@ -1,0 +1,495 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Sales Management - Supermarket DBMS{% endblock %}
+{% block content %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2>Sales Management</h2>
+    <p class="text-muted mb-0">Point of Sale (POS) system - Track and manage all sales transactions</p>
+  </div>
+  <div class="btn-group">
+    <a href="{% url 'create_sale' %}" class="btn btn-primary">
+      <i class="fas fa-plus me-2"></i>New Sale
+    </a>
+    <button class="btn btn-outline-secondary" onclick="printSales()">
+      <i class="fas fa-print me-2"></i>Print
+    </button>
+    <button class="btn btn-outline-info" onclick="exportSales()">
+      <i class="fas fa-download me-2"></i>Export
+    </button>
+  </div>
+</div>
+
+<!-- Filters and Search -->
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label">Search Sales</label>
+        <input type="text" class="form-control" id="salesSearch" placeholder="Search by receipt, customer, staff...">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Staff</label>
+        <select id="staffFilter" class="form-select">
+          <option value="">All Staff</option>
+          <!-- Staff options will be populated by JavaScript -->
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Payment Method</label>
+        <select id="paymentFilter" class="form-select">
+          <option value="">All Methods</option>
+          <option value="Cash">Cash</option>
+          <option value="Card">Card</option>
+          <option value="MobileMoney">Mobile Money</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Date Range</label>
+        <select id="dateRangeFilter" class="form-select">
+          <option value="">All Time</option>
+          <option value="today">Today</option>
+          <option value="week">This Week</option>
+          <option value="month">This Month</option>
+</select>
+      </div>
+      <div class="col-md-3">
+        <button class="btn btn-primary w-100" onclick="applyFilters()">
+          <i class="fas fa-filter me-2"></i>Apply Filters
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Sales Table -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">Sales Transactions</h5>
+    <div class="btn-group btn-group-sm">
+      <button class="btn btn-outline-primary" onclick="refreshSales()">
+        <i class="fas fa-sync me-1"></i>Refresh
+      </button>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    {% if sales %}
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="salesTable">
+        <thead class="table-light">
+          <tr>
+            <th>Receipt No</th>
+            <th>Date & Time</th>
+            <th>Customer</th>
+            <th>Staff</th>
+            <th>Items</th>
+            <th>Total Amount</th>
+            <th>Payment Method</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+<tbody>
+{% for s in sales %}
+<tr>
+            <td>
+              <div class="d-flex align-items-center">
+                <div class="avatar-sm bg-primary rounded-circle d-flex align-items-center justify-content-center me-2">
+                  <i class="fas fa-receipt text-white"></i>
+                </div>
+                <div>
+                  <h6 class="mb-0">{{ s.receipt_no }}</h6>
+                  {% if s.discount_applied %}
+                    <small class="text-success">
+                      <i class="fas fa-tag me-1"></i>Discount: UGx. {{ s.discount_applied|floatformat:0 }}
+                    </small>
+                  {% endif %}
+                </div>
+              </div>
+            </td>
+            <td>
+              <div>
+                <span class="fw-bold">{{ s.sale_datetime|date:"M d, Y" }}</span><br>
+                <small class="text-muted">{{ s.sale_datetime|time:"H:i" }}</small>
+              </div>
+            </td>
+            <td>
+              {% if s.customer %}
+                <div>
+                  <h6 class="mb-0">{{ s.customer.first_name }} {{ s.customer.last_name }}</h6>
+                  <small class="text-muted">{{ s.customer.phone|default:"No phone" }}</small>
+                </div>
+              {% else %}
+                <span class="text-muted">Walk-in Customer</span>
+              {% endif %}
+            </td>
+            <td>
+              <div>
+                <h6 class="mb-0">{{ s.staff.first_name }} {{ s.staff.last_name }}</h6>
+                <small class="text-muted">{{ s.staff.position|default:"Staff" }}</small>
+              </div>
+            </td>
+            <td>
+              <span class="badge bg-info">{{ s.saledetail_set.count }} items</span>
+            </td>
+            <td>
+              <div class="text-end">
+                <h6 class="mb-0 text-primary">UGx. {{ s.total_amount|floatformat:0 }}</h6>
+                {% if s.discount_applied %}
+                  <small class="text-muted">Was: UGx. {{ s.total_amount|add:s.discount_applied|floatformat:0 }}</small>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              <span class="badge bg-{% if s.payment_method == 'Cash' %}success{% elif s.payment_method == 'Card' %}primary{% else %}warning{% endif %}">
+                {{ s.payment_method|title }}
+              </span>
+            </td>
+            <td>
+              <div class="btn-group btn-group-sm">
+                <a href="{% url 'sale_detail' s.pk %}" class="btn btn-outline-primary" title="View Details">
+                  <i class="fas fa-eye"></i>
+                </a>
+                <button class="btn btn-outline-info" onclick="printReceipt('{{ s.receipt_no }}')" title="Print Receipt">
+                  <i class="fas fa-print"></i>
+                </button>
+                <button class="btn btn-outline-secondary" onclick="viewSaleItems({{ s.pk }})" title="View Items">
+                  <i class="fas fa-list"></i>
+                </button>
+              </div>
+            </td>
+</tr>
+{% endfor %}
+</tbody>
+        <tfoot class="table-light">
+          <tr>
+            <th colspan="5">Totals:</th>
+            <th class="text-end" id="tableTotal">UGx. 0</th>
+            <th colspan="2"></th>
+          </tr>
+        </tfoot>
+</table>
+    </div>
+    {% else %}
+    <div class="text-center py-5">
+      <i class="fas fa-shopping-cart fa-3x text-muted mb-3"></i>
+      <h5 class="text-muted">No Sales Found</h5>
+      <p class="text-muted">Start by creating your first sale transaction.</p>
+      <a href="{% url 'create_sale' %}" class="btn btn-primary">
+        <i class="fas fa-plus me-2"></i>Create First Sale
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Sale Items Modal -->
+<div class="modal fade" id="saleItemsModal" tabindex="-1" aria-labelledby="saleItemsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="saleItemsModalLabel">Sale Items</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="saleItemsBody">
+        <!-- Content will be loaded dynamically -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Font Awesome for icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+<script>
+// Global variables
+let salesData = [];
+let filteredSales = [];
+
+// Initialize sales data
+function initializeSalesData() {
+  salesData = [
+    {% for s in sales %}
+    {
+      id: {{ s.pk }},
+      receipt_no: '{{ s.receipt_no }}',
+      sale_datetime: '{{ s.sale_datetime|date:"Y-m-d H:i" }}',
+      customer_name: {% if s.customer %}'{{ s.customer.first_name|escapejs }} {{ s.customer.last_name|escapejs }}'{% else %}'Walk-in Customer'{% endif %},
+      customer_phone: {% if s.customer %}'{{ s.customer.phone|default:""|escapejs }}'{% else %}''{% endif %},
+      staff_name: '{{ s.staff.first_name|escapejs }} {{ s.staff.last_name|escapejs }}',
+      staff_position: '{{ s.staff.position|default:"Staff" }}',
+      items_count: {{ s.saledetail_set.count }},
+      total_amount: {{ s.total_amount }},
+      discount_applied: {{ s.discount_applied|default:0 }},
+      payment_method: '{{ s.payment_method }}',
+      sale_date: '{{ s.sale_datetime|date:"Y-m-d" }}',
+      sale_time: '{{ s.sale_datetime|time:"H:i" }}'
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+  ];
+  
+  filteredSales = [...salesData];
+  calculateSummary();
+  populateFilters();
+}
+
+// Calculate summary statistics
+function calculateSummary() {
+  const totalSales = salesData.length;
+  const totalRevenue = salesData.reduce((sum, sale) => sum + sale.total_amount, 0);
+  const avgSale = totalSales > 0 ? totalRevenue / totalSales : 0;
+  
+  // Today's sales
+  const today = new Date().toISOString().split('T')[0];
+  const todaySales = salesData.filter(sale => sale.sale_date === today).length;
+  
+  document.getElementById('totalSales').textContent = totalSales.toLocaleString();
+  document.getElementById('totalRevenue').textContent = 'UGx. ' + totalRevenue.toLocaleString();
+  document.getElementById('avgSale').textContent = 'UGx. ' + Math.round(avgSale).toLocaleString();
+  document.getElementById('todaySales').textContent = todaySales;
+  
+  // Update table total
+  const tableTotal = filteredSales.reduce((sum, sale) => sum + sale.total_amount, 0);
+  document.getElementById('tableTotal').textContent = 'UGx. ' + tableTotal.toLocaleString();
+}
+
+// Populate filter dropdowns
+function populateFilters() {
+  const staffSelect = document.getElementById('staffFilter');
+  
+  // Get unique staff names
+  const staffSet = new Set(salesData.map(sale => sale.staff_name));
+  Array.from(staffSet).sort().forEach(staff => {
+    const option = document.createElement('option');
+    option.value = staff;
+    option.textContent = staff;
+    staffSelect.appendChild(option);
+  });
+}
+
+// Apply filters
+function applyFilters() {
+  const searchTerm = document.getElementById('salesSearch').value.toLowerCase();
+  const staffFilter = document.getElementById('staffFilter').value;
+  const paymentFilter = document.getElementById('paymentFilter').value;
+  const dateRangeFilter = document.getElementById('dateRangeFilter').value;
+  
+  filteredSales = salesData.filter(sale => {
+    const matchesSearch = !searchTerm || 
+      sale.receipt_no.toLowerCase().includes(searchTerm) ||
+      sale.customer_name.toLowerCase().includes(searchTerm) ||
+      sale.staff_name.toLowerCase().includes(searchTerm);
+    
+    const matchesStaff = !staffFilter || sale.staff_name === staffFilter;
+    const matchesPayment = !paymentFilter || sale.payment_method === paymentFilter;
+    
+    let matchesDate = true;
+    if (dateRangeFilter) {
+      const today = new Date();
+      const saleDate = new Date(sale.sale_date);
+      
+      switch (dateRangeFilter) {
+        case 'today':
+          matchesDate = saleDate.toDateString() === today.toDateString();
+          break;
+        case 'week':
+          const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+          matchesDate = saleDate >= weekAgo;
+          break;
+        case 'month':
+          const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+          matchesDate = saleDate >= monthAgo;
+          break;
+      }
+    }
+    
+    return matchesSearch && matchesStaff && matchesPayment && matchesDate;
+  });
+  
+  displaySalesTable();
+  calculateSummary();
+}
+
+// Display sales table
+function displaySalesTable() {
+  const tbody = document.querySelector('#salesTable tbody');
+  if (!tbody) return;
+  
+  tbody.innerHTML = filteredSales.map(sale => {
+    const paymentBadgeClass = sale.payment_method === 'Cash' ? 'bg-success' : 
+                             sale.payment_method === 'Card' ? 'bg-primary' : 'bg-warning';
+    
+    return `
+      <tr>
+        <td>
+          <div class="d-flex align-items-center">
+            <div class="avatar-sm bg-primary rounded-circle d-flex align-items-center justify-content-center me-2">
+              <i class="fas fa-receipt text-white"></i>
+            </div>
+            <div>
+              <h6 class="mb-0">${sale.receipt_no}</h6>
+              ${sale.discount_applied > 0 ? 
+                `<small class="text-success"><i class="fas fa-tag me-1"></i>Discount: UGx. ${sale.discount_applied.toLocaleString()}</small>` : 
+                ''}
+            </div>
+          </div>
+        </td>
+        <td>
+          <div>
+            <span class="fw-bold">${new Date(sale.sale_date).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'})}</span><br>
+            <small class="text-muted">${sale.sale_time}</small>
+          </div>
+        </td>
+        <td>
+          <div>
+            <h6 class="mb-0">${sale.customer_name}</h6>
+            ${sale.customer_phone ? `<small class="text-muted">${sale.customer_phone}</small>` : ''}
+          </div>
+        </td>
+        <td>
+          <div>
+            <h6 class="mb-0">${sale.staff_name}</h6>
+            <small class="text-muted">${sale.staff_position}</small>
+          </div>
+        </td>
+        <td>
+          <span class="badge bg-info">${sale.items_count} items</span>
+        </td>
+        <td>
+          <div class="text-end">
+            <h6 class="mb-0 text-primary">UGx. ${sale.total_amount.toLocaleString()}</h6>
+            ${sale.discount_applied > 0 ? 
+              `<small class="text-muted">Was: UGx. ${(sale.total_amount + sale.discount_applied).toLocaleString()}</small>` : 
+              ''}
+          </div>
+        </td>
+        <td>
+          <span class="badge ${paymentBadgeClass}">${sale.payment_method}</span>
+        </td>
+        <td>
+          <div class="btn-group btn-group-sm">
+            <a href="/sales/${sale.id}/" class="btn btn-outline-primary" title="View Details">
+              <i class="fas fa-eye"></i>
+            </a>
+            <button class="btn btn-outline-info" onclick="printReceipt('${sale.receipt_no}')" title="Print Receipt">
+              <i class="fas fa-print"></i>
+            </button>
+            <button class="btn btn-outline-secondary" onclick="viewSaleItems(${sale.id})" title="View Items">
+              <i class="fas fa-list"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// View sale items
+function viewSaleItems(saleId) {
+  // This would typically fetch data from an API
+  // For now, we'll show a placeholder
+  document.getElementById('saleItemsBody').innerHTML = `
+    <div class="text-center py-3">
+      <i class="fas fa-spinner fa-spin fa-2x text-muted mb-3"></i>
+      <p class="text-muted">Loading sale items...</p>
+    </div>
+  `;
+  
+  const modal = new bootstrap.Modal(document.getElementById('saleItemsModal'));
+  modal.show();
+  
+  // Simulate loading (in real implementation, fetch from API)
+  setTimeout(() => {
+    document.getElementById('saleItemsBody').innerHTML = `
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Quantity</th>
+              <th>Unit Price</th>
+              <th>Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td colspan="4" class="text-center text-muted">
+                Sale items will be loaded here
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+  }, 1000);
+}
+
+// Print receipt
+function printReceipt(receiptNo) {
+  // This would typically open a receipt printing window
+  alert(`Printing receipt: ${receiptNo}`);
+}
+
+// Export sales
+function exportSales() {
+  window.open('/sales/export/?format=csv', '_blank');
+}
+
+// Print sales
+function printSales() {
+  window.print();
+}
+
+// Refresh sales
+function refreshSales() {
+  location.reload();
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+  initializeSalesData();
+  
+  // Add event listeners
+  document.getElementById('salesSearch').addEventListener('input', applyFilters);
+  document.getElementById('staffFilter').addEventListener('change', applyFilters);
+  document.getElementById('paymentFilter').addEventListener('change', applyFilters);
+  document.getElementById('dateRangeFilter').addEventListener('change', applyFilters);
+});
+</script>
+
+<style>
+.avatar-sm {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
+
+@media print {
+  .btn, .modal, .card-header .btn-group {
+    display: none !important;
+  }
+  
+  .card {
+    border: none !important;
+    box-shadow: none !important;
+  }
+}
+
+.table th {
+  border-top: none;
+}
+
+.badge {
+  font-size: 0.75em;
+}
+
+.text-success { color: #28a745 !important; }
+.text-primary { color: #0d6efd !important; }
+.text-warning { color: #ffc107 !important; }
+.text-info { color: #17a2b8 !important; }
+</style>
+
+{% endblock %}

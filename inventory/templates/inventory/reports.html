@@ -1,0 +1,1269 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Analytics & Reports - Supermarket DBMS{% endblock %}
+{% block content %}
+
+<!-- Simple header -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h2>Analytics & Reports</h2>
+    <p class="text-muted mb-0">Comprehensive business intelligence dashboard</p>
+  </div>
+  <div class="btn-group">
+    <button class="btn btn-outline-primary" onclick="showExportPopup('report')">Export Report</button>
+    <button class="btn btn-outline-secondary" onclick="printReports()">Print</button>
+    <button class="btn btn-outline-info" onclick="refreshData()">Refresh</button>
+  </div>
+</div>
+
+<!-- Controls -->
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-3">
+        <label class="form-label">Date Range</label>
+        <select id="dateRange" class="form-select">
+          <option value="7">Last 7 Days</option>
+          <option value="30">Last 30 Days</option>
+          <option value="90">Last 90 Days</option>
+          <option value="365" selected>Last Year</option>
+          <option value="1825" selected>All Time (5 Years)</option>
+          <option value="custom">Custom Range</option>
+        </select>
+      </div>
+      <div class="col-sm-3">
+        <label class="form-label">From</label>
+        <input id="fromDate" class="form-control" type="date" />
+      </div>
+      <div class="col-sm-3">
+        <label class="form-label">To</label>
+        <input id="toDate" class="form-control" type="date" />
+      </div>
+      <div class="col-sm-3">
+        <button id="btnGenerate" class="btn btn-primary w-100">Generate Reports</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- KPI cards -->
+<div class="row mb-3">
+  <div class="col-md-3 mb-2">
+    <div class="card p-2">
+      <small class="text-muted">Total Revenue</small>
+      <h4 id="totalRevenue" class="mb-0">UGx. 0.00</h4>
+      <small id="revenueGrowth" class="text-success"></small>
+    </div>
+  </div>
+  <div class="col-md-3 mb-2">
+    <div class="card p-2">
+      <small class="text-muted">Total Orders</small>
+      <h4 id="totalOrders" class="mb-0">0</h4>
+      <small class="text-info">Orders Count</small>
+    </div>
+  </div>
+  <div class="col-md-3 mb-2">
+    <div class="card p-2">
+      <small class="text-muted">Average Order Value</small>
+      <h4 id="avgOrderValue" class="mb-0">UGx. 0.00</h4>
+      <small class="text-warning">Avg per Order</small>
+    </div>
+  </div>
+  <div class="col-md-3 mb-2">
+    <div class="card p-2">
+      <small class="text-muted">Top Category</small>
+      <h4 id="topCategory" class="mb-0">—</h4>
+      <small class="text-muted">Highest Revenue Category</small>
+    </div>
+  </div>
+</div>
+
+<!-- Charts row -->
+<div class="row mb-3">
+  <div class="col-lg-6 mb-3">
+    <div class="card h-100">
+      <div class="card-header"><strong>Sales by Category</strong></div>
+      <div class="card-body">
+        <canvas id="categoryChart" height="260"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6 mb-3">
+    <div class="card h-100">
+      <div class="card-header"><strong>Sales Distribution</strong></div>
+      <div class="card-body">
+        <canvas id="distributionChart" height="260"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Yearly Sales Line Graph -->
+<div class="row mb-3">
+  <div class="col-12">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Yearly Trend</strong>
+        <div class="d-flex gap-2">
+          <select id="yearRangeSelect" class="form-select form-select-sm" style="width: auto;">
+            <option value="5">Last 5 Years</option>
+            <option value="3">Last 3 Years</option>
+            <option value="7">Last 7 Years</option>
+            <option value="10">Last 10 Years</option>
+          </select>
+          <button id="refreshYearlyChart" class="btn btn-sm btn-outline-primary">
+            <i class="fas fa-sync-alt"></i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        <canvas id="yearlySalesChart" height="300"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Quarterly Sales Bar Graph -->
+<div class="row mb-3">
+  <div class="col-12">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Quarterly Sales by Year</strong>
+        <div class="d-flex gap-2">
+          <select id="quarterYearRangeSelect" class="form-select form-select-sm" style="width: auto;">
+            <option value="3">Last 3 Years</option>
+            <option value="5" selected>Last 5 Years</option>
+            <option value="7">Last 7 Years</option>
+          </select>
+          <button id="refreshQuarterlyChart" class="btn btn-sm btn-outline-primary">
+            <i class="fas fa-sync-alt"></i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        <canvas id="quarterlySalesChart" height="300"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tax Reporting Section -->
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>Tax Reporting</strong>
+    <div class="d-flex gap-2 align-items-center">
+      <label class="form-label mb-0" style="font-size: 0.9rem;">Tax Rate (optional):</label>
+      <input type="number" id="taxRateInput" class="form-control form-control-sm" style="width: 100px;" 
+             placeholder="0.18" step="0.01" min="0" max="1" title="Enter tax rate as decimal (e.g., 0.18 for 18%)">
+      <button id="btnLoadTaxes" class="btn btn-sm btn-primary">Load Tax Report</button>
+      <button id="btnGroupByPayment" class="btn btn-sm btn-outline-secondary">Group by Payment</button>
+    </div>
+  </div>
+  <div class="card-body">
+    <!-- Tax Summary Cards -->
+    <div class="row mb-3">
+      <div class="col-md-4 mb-2">
+        <div class="card p-2 bg-light">
+          <small class="text-muted">Total Tax Collected</small>
+          <h4 id="totalTaxAmount" class="mb-0">UGx. 0.00</h4>
+          <small class="text-info">Tax Amount</small>
+        </div>
+      </div>
+      <div class="col-md-4 mb-2">
+        <div class="card p-2 bg-light">
+          <small class="text-muted">Number of Sales</small>
+          <h4 id="taxSalesCount" class="mb-0">0</h4>
+          <small class="text-info">Sales Count</small>
+        </div>
+      </div>
+      <div class="col-md-4 mb-2">
+        <div class="card p-2 bg-light">
+          <small class="text-muted">Average Tax per Sale</small>
+          <h4 id="avgTaxPerSale" class="mb-0">UGx. 0.00</h4>
+          <small class="text-info">Average</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tax Chart -->
+    <div class="row mb-3">
+      <div class="col-lg-6 mb-3">
+        <div class="card h-100">
+          <div class="card-header"><strong>Tax by Payment Method</strong></div>
+          <div class="card-body">
+            <canvas id="taxByPaymentChart" height="260"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6 mb-3">
+        <div class="card h-100">
+          <div class="card-header"><strong>Tax Breakdown</strong></div>
+          <div class="card-body">
+            <canvas id="taxBreakdownChart" height="260"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tax Details Table -->
+    <div class="table-responsive">
+      <table class="table table-hover" id="taxTable">
+        <thead class="table-light">
+          <tr>
+            <th>Payment Method</th>
+            <th class="text-end">Total Tax</th>
+            <th class="text-end">Sales Count</th>
+            <th class="text-end">Avg Tax per Sale</th>
+          </tr>
+        </thead>
+        <tbody id="taxTableBody">
+          <tr><td colspan="4" class="text-center py-4 text-muted">Click "Load Tax Report" to view tax data</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Finacial reports, taxes, cogs etc. -->
+
+<head>
+    <meta charset="UTF-8">
+    <title>Financial Dashboard</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { background: #f5f7fb; }
+        .card { border-radius: 10px; }
+        .kpi-value { font-size: 1.8rem; font-weight: 700; }
+        .chart-container { margin-top: 35px; }
+    </style>
+</head>
+
+<body>
+<div class="container py-4">
+
+    <h2 class="mb-4 text-center fw-bold">📊 Financial Performance Dashboard</h2>
+
+    <!-- Filters -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+          <label for="start" class="form-label">Start Date</label>
+            <input type="date" id="start" class="form-control">
+        </div>
+        <div class="col-md-3">
+            <label for="end" class="form-label">End Date</label>
+            <input type="date" id="end" class="form-control">
+        </div>
+        <div class="col-md-3">
+            <select id="group_by" class="form-select">
+                <option value="day">Daily</option>
+                <option value="week">Weekly</option>
+                <option value="month">Monthly</option>
+                <option value="quarter">Quarterly</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <button class="btn btn-primary w-100" onclick="loadReport()">Generate Report</button>
+        </div>
+    </div>
+
+    <!-- KPI CARDS -->
+    <div class="row text-center" id="kpi-cards">
+        <div class="col-md-3">
+            <div class="card p-3 shadow-sm">
+                <div class="text-muted">Gross Sales</div>
+                <div id="kpi-sales" class="kpi-value">0</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card p-3 shadow-sm">
+                <div class="text-muted">COGS</div>
+                <div id="kpi-cogs" class="kpi-value">0</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card p-3 shadow-sm">
+                <div class="text-muted">Net Profit</div>
+                <div id="kpi-profit" class="kpi-value">0</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card p-3 shadow-sm">
+                <div class="text-muted">Profit Margin</div>
+                <div id="kpi-margin" class="kpi-value">0%</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="chart-container">
+        <canvas id="salesChart" height="90"></canvas>
+    </div>
+    <div class="chart-container">
+        <canvas id="profitChart" height="90"></canvas>
+    </div>
+    <div class="chart-container mb-5">
+        <canvas id="expenseChart" height="90"></canvas>
+    </div>
+
+    <!-- Data Table -->
+    <div class="card shadow-sm">
+        <div class="card-header fw-bold">Detailed Financial Data</div>
+        <div class="card-body p-0">
+            <table class="table table-striped table-hover m-0" id="reportTable">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Period</th>
+                        <th>Gross Sales</th>
+                        <th>COGS</th>
+                        <th>Payroll</th>
+                        <th>Expiry Losses</th>
+                        <th>Taxes</th>
+                        <th>Net Profit</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<script>
+  
+let salesChart, profitChart, expenseChart;
+
+async function loadReport() {
+    const start = document.getElementById("start").value;
+    const end = document.getElementById("end").value;
+    const group_by = document.getElementById("group_by").value;
+
+    if (!start || !end) return alert("Select both dates");
+
+    const response = await fetch(`/api/reports/financial/?start=${start}&end=${end}&group_by=${group_by}`);
+    const data = await response.json();
+
+    console.log("Received data:", data); // ✅ Debug check in browser console
+
+    const merge = {};
+    const add = (list, key) => list.forEach(i => {
+        const p = i.period.substring(0,10);
+        merge[p] ??= {};
+        merge[p][key] = parseFloat(i.value)||0;
+    });
+
+    add(data.gross_sales,"sales");
+    add(data.cogs,"cogs");
+    add(data.payroll_expenses,"payroll");
+    add(data.expiry_losses,"expiry");
+    add(data.taxes,"tax");
+
+    const periods=[], sales=[], cogs=[], payroll=[], expiry=[], tax=[], net=[];
+    let totalSales=0, totalCogs=0, totalProfit=0;
+
+    const tbody=document.querySelector("#reportTable tbody");
+    tbody.innerHTML="";
+
+    Object.keys(merge).sort().forEach(p=>{
+        const m=merge[p];
+        const n=(m.sales||0)-(m.cogs||0)-(m.payroll||0)-(m.expiry||0)-(m.tax||0);
+
+        periods.push(p); sales.push(m.sales||0); cogs.push(m.cogs||0);
+        payroll.push(m.payroll||0); expiry.push(m.expiry||0); tax.push(m.tax||0); net.push(n);
+
+        totalSales+=m.sales||0; totalCogs+=m.cogs||0; totalProfit+=n;
+
+        tbody.innerHTML += `
+            <tr>
+                <td>${p}</td>
+                <td>${(m.sales||0).toFixed(2)}</td>
+                <td>${(m.cogs||0).toFixed(2)}</td>
+                <td>${(m.payroll||0).toFixed(2)}</td>
+                <td>${(m.expiry||0).toFixed(2)}</td>
+                <td>${(m.tax||0).toFixed(2)}</td>
+                <td class="fw-bold">${n.toFixed(2)}</td>
+            </tr>`;
+    });
+
+    // KPI Cards
+    document.getElementById("kpi-sales").innerText = totalSales.toFixed(2);
+    document.getElementById("kpi-cogs").innerText = totalCogs.toFixed(2);
+    document.getElementById("kpi-profit").innerText = totalProfit.toFixed(2);
+    document.getElementById("kpi-margin").innerText = totalSales ? ((totalProfit/totalSales)*100).toFixed(1)+"%" : "0%";
+
+    // Destroy old charts
+    salesChart?.destroy(); profitChart?.destroy(); expenseChart?.destroy();
+
+    // Sales vs COGS
+    salesChart = new Chart(document.getElementById("salesChart"), {
+        type:'bar',
+        data:{ labels: periods, datasets:[
+            {label:'Gross Sales',data:sales},
+            {label:'COGS',data:cogs}
+        ]}
+    });
+
+    // Profit Trend
+    profitChart = new Chart(document.getElementById("profitChart"), {
+        type:'line',
+        data:{ labels: periods, datasets:[{label:'Net Profit',data:net}] }
+    });
+
+    // Expense Breakdown
+    expenseChart = new Chart(document.getElementById("expenseChart"), {
+        type:'bar',
+        data:{ labels:periods, datasets:[
+            {label:'Payroll',data:payroll},
+            {label:'Expiry Losses',data:expiry},
+            {label:'Taxes',data:tax}
+        ]}
+    });
+}
+</script>
+
+</body>
+</html>
+
+
+
+<!-- Detailed table -->
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0">Detailed Sales Report</h6>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-outline-primary" onclick="showExportPopup('table')">Export</button>
+        <button class="btn btn-outline-secondary" onclick="printTable()">Print</button>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-hover" id="salesTable">
+        <thead class="table-light">
+          <tr>
+            <th>Date</th><th>Product</th><th>Category</th>
+            <th>Qty</th><th>Unit Price</th><th>Total</th><th>Customer</th>
+          </tr>
+        </thead>
+        <tbody id="salesTableBody">
+          <tr><td colspan="7" class="text-center py-4">
+            <div class="spinner-border text-primary" role="status"></div>
+            <div class="mt-2">Loading sales data...</div>
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Export Popup Modal -->
+<div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="exportModalLabel">Export Options</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-grid gap-2">
+          <button type="button" class="btn btn-outline-danger" onclick="exportData('pdf')">
+            <i class="fas fa-file-pdf me-2"></i>Export as PDF
+          </button>
+          <button type="button" class="btn btn-outline-success" onclick="exportData('csv')">
+            <i class="fas fa-file-csv me-2"></i>Export as CSV
+          </button>
+          <button type="button" class="btn btn-outline-primary" onclick="exportData('excel')">
+            <i class="fas fa-file-excel me-2"></i>Export as Excel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart.js and dependencies -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.4.0/dist/chartjs-adapter-luxon.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+<script>
+/* -------------------------
+   Helper & globals
+   ------------------------- */
+const charts = {};
+let currentExportType = '';
+
+/* Safe HTML escape */
+function escapeHtml(s){ 
+  if(s===null||s===undefined) return ''; 
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); 
+}
+
+/* Compose query params for date filters */
+function dateQuery() {
+  const from = document.getElementById('fromDate').value;
+  const to = document.getElementById('toDate').value;
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  return params.toString() ? ('?' + params.toString()) : '';
+}
+
+/* -------------------------
+   Export Popup Functions
+   ------------------------- */
+function showExportPopup(type) {
+  currentExportType = type;
+  const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+  const title = document.getElementById('exportModalLabel');
+  
+  if (type === 'report') {
+    title.textContent = 'Export Full Report';
+  } else {
+    title.textContent = 'Export Sales Table';
+  }
+  
+  modal.show();
+}
+
+function exportData(format) {
+  let url;
+  if (currentExportType === 'report') {
+    url = '/export/report/?format=' + format;
+  } else {
+    url = '/export/table/?format=' + format;
+  }
+  
+  const fromDate = document.getElementById('fromDate').value;
+  const toDate = document.getElementById('toDate').value;
+  
+  if (fromDate) url += '&from=' + fromDate;
+  if (toDate) url += '&to=' + toDate;
+  
+  const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+  modal.hide();
+  window.location.href = url;
+}
+
+/* -------------------------
+   Robust fetch with timeout
+   ------------------------- */
+async function fetchWithTimeout(resource, options = {}) {
+  const { timeout = 15000, ...opts } = options;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const res = await fetch(resource, { ...opts, signal: controller.signal });
+    clearTimeout(id);
+    return res;
+  } catch (err) {
+    clearTimeout(id);
+    if (err.name === 'AbortError') throw new Error('fetch timeout');
+    throw err;
+  }
+}
+
+/* -------------------------
+   Date Range Management
+   ------------------------- */
+function updateDateInputs() {
+  const rangeSelect = document.getElementById('dateRange');
+  const fromInput = document.getElementById('fromDate');
+  const toInput = document.getElementById('toDate');
+  const selectedRange = rangeSelect.value;
+  
+  const today = new Date();
+  const to = today.toISOString().split('T')[0];
+    
+  
+  
+  if (selectedRange === 'custom') {
+    fromInput.disabled = false;
+    toInput.disabled = false;
+  } else {
+    fromInput.disabled = true;
+    toInput.disabled = true;
+    
+    const days = parseInt(selectedRange);
+    const from = new Date(today.getTime() - days*24*60*60*1000).toISOString().split('T')[0];
+    
+    fromInput.value = from;
+    toInput.value = to;
+        if (days && !isNaN(days)) {
+      const from = new Date(today.getTime() - days*24*60*60*1000).toISOString().split('T')[0];
+      fromInput.value = from;
+      toInput.value = to;
+    } else {
+      // For "All Time" or invalid selections, set a wide range
+      const from = new Date(today.getTime() - 5*365*24*60*60*1000).toISOString().split('T')[0];
+      fromInput.value = from;
+      toInput.value = to;
+    }
+  }
+}
+
+
+/* -------------------------
+   API loaders
+   ------------------------- */
+
+async function updateKPIs() {
+  try {
+    const res = await fetchWithTimeout("{% url 'kpi_data_api' %}" + dateQuery(), { timeout: 15000 });
+    if (!res.ok) throw new Error('KPI API ' + res.status);
+    const data = await res.json();
+
+    document.getElementById('totalRevenue').textContent = 'UGx. ' + Number(data.total_revenue || 0).toLocaleString(undefined,{minimumFractionDigits:0, maximumFractionDigits:0});
+    document.getElementById('totalOrders').textContent = Number(data.total_orders || 0).toLocaleString();
+    document.getElementById('avgOrderValue').textContent = 'UGx. ' + Number(data.avg_order_value || 0).toLocaleString(undefined,{minimumFractionDigits:0, maximumFractionDigits:0});
+    document.getElementById('topCategory').textContent = escapeHtml(data.top_category) || '—';
+
+    const growthEl = document.getElementById('revenueGrowth');
+    if (data.revenue_growth_pct !== null && data.revenue_growth_pct !== undefined) {
+      const pct = Number(data.revenue_growth_pct);
+      growthEl.textContent = (pct >= 0 ? '▲ ' : '▼ ') + Math.abs(pct).toFixed(1) + '% (last 30d)';
+      growthEl.className = pct >= 0 ? 'text-success' : 'text-danger';
+    } else {
+      growthEl.textContent = '';
+    }
+  } catch (err) {
+    console.error('updateKPIs error', err);
+  }
+}
+
+async function loadCategoryData() {
+  try {
+    const res = await fetchWithTimeout("{% url 'sales_by_category_api' %}" + dateQuery(), { timeout: 15000 });
+    if (!res.ok) throw new Error('sales_by_category_api ' + res.status);
+    const payload = await res.json();
+
+    const ctx = document.getElementById('categoryChart').getContext('2d');
+    if (charts.category) charts.category.destroy();
+
+    charts.category = new Chart(ctx, {
+      type: 'doughnut',
+      data: { 
+        labels: payload.labels, 
+        datasets: [{ 
+          data: payload.data,
+          backgroundColor: [
+            'rgba(255, 99, 132, 0.8)',
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 206, 86, 0.8)',
+            'rgba(75, 192, 192, 0.8)',
+            'rgba(153, 102, 255, 0.8)',
+            'rgba(255, 159, 64, 0.8)',
+          ]
+        }] 
+      },
+      options: { 
+        responsive: true, 
+        maintainAspectRatio: false, 
+        plugins: { 
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return context.label + ': ' + context.parsed.toFixed(1) + '%';
+              }
+            }
+          }
+        } 
+      }
+    });
+  } catch (err) {
+    console.error('loadCategoryData error', err);
+  }
+}
+
+async function loadDistributionData() {
+  try {
+    const res = await fetchWithTimeout("{% url 'sales_histogram_api' %}" + dateQuery(), { timeout: 15000 });
+    if (!res.ok) throw new Error('sales_histogram_api ' + res.status);
+    const payload = await res.json();
+
+    const ctx = document.getElementById('distributionChart').getContext('2d');
+    if (charts.dist) charts.dist.destroy();
+
+    charts.dist = new Chart(ctx, {
+      type: 'bar',
+      data: { 
+        labels: payload.labels, 
+        datasets: [{ 
+          label: 'Sales Count', 
+          data: payload.data,
+          backgroundColor: 'rgba(255, 159, 64, 0.8)',
+          borderColor: 'rgba(255, 159, 64, 1)',
+          borderWidth: 1
+        }] 
+      },
+      options: { 
+        responsive: true, 
+        maintainAspectRatio: false, 
+        scales: { 
+          y: { 
+            beginAtZero: true,
+            title: { display: true, text: 'Number of Sales' }
+          },
+          x: {
+            title: { display: true, text: 'Sale Amount Range (UGx)' }
+          }
+        } 
+      }
+    });
+  } catch (err) {
+    console.error('loadDistributionData error', err);
+  }
+}
+
+async function loadYearlySalesData(years = 5) {
+  try {
+    const currentYear = new Date().getFullYear();
+    const startYear = currentYear - years + 1;
+    
+    // Get the date filters from your controls
+    const fromDate = document.getElementById('fromDate').value;
+    const toDate = document.getElementById('toDate').value;
+    
+    // Build URL with both year range AND date filters
+    let url = "{% url 'yearly_sales_api' %}?start_year=" + startYear + "&end_year=" + currentYear;
+    
+    // Add date filters if they exist
+    if (fromDate) url += '&from=' + fromDate;
+    if (toDate) url += '&to=' + toDate;
+    
+    const res = await fetchWithTimeout(url, { timeout: 15000 });
+    if (!res.ok) throw new Error('yearly_sales_api ' + res.status);
+    const data = await res.json();
+
+    const ctx = document.getElementById('yearlySalesChart').getContext('2d');
+    if (charts.yearly) charts.yearly.destroy();
+
+    charts.yearly = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.years,
+        datasets: [{
+          label: 'Yearly Sales',
+          data: data.sales_totals,
+          borderColor: '#4e73df',
+          backgroundColor: 'rgba(78, 115, 223, 0.1)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.4,
+          pointBackgroundColor: '#4e73df',
+          pointBorderColor: '#ffffff',
+          pointBorderWidth: 2,
+          pointRadius: 5,
+          pointHoverRadius: 7
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top'
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return `${data.currency_symbol} ${context.parsed.y.toLocaleString()}`;
+              }
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function(value) {
+                return data.currency_symbol + ' ' + value.toLocaleString();
+              }
+            },
+            title: {
+              display: true,
+              text: 'Sales Amount'
+            }
+          },
+          x: {
+            title: {
+              display: true,
+              text: 'Year'
+            }
+          }
+        },
+        interaction: {
+          intersect: false,
+          mode: 'index'
+        }
+      }
+    });
+  } catch (err) {
+    console.error('loadYearlySalesData error', err);
+    const ctx = document.getElementById('yearlySalesChart').getContext('2d');
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#666';
+    ctx.textAlign = 'center';
+    ctx.fillText('Error loading yearly sales data', ctx.canvas.width / 2, ctx.canvas.height / 2);
+  }
+}
+
+/* Quarterly Sales Chart Functions */
+async function loadQuarterlySalesData(years = 5) {
+  try {
+    const currentYear = new Date().getFullYear();
+    const startYear = currentYear - years + 1;
+    
+    const res = await fetchWithTimeout("{% url 'quarterly_sales_api' %}?start_year=" + startYear + "&end_year=" + currentYear, { timeout: 15000 });
+    
+    if (!res.ok) throw new Error('quarterly_sales_api ' + res.status);
+    const data = await res.json();
+
+    const ctx = document.getElementById('quarterlySalesChart').getContext('2d');
+    if (charts.quarterly) charts.quarterly.destroy();
+
+    // Define colors for different years
+    const colors = [
+      'rgba(54, 162, 235, 0.8)',  // Blue
+      'rgba(255, 99, 132, 0.8)',  // Red
+      'rgba(75, 192, 192, 0.8)',  // Green
+      'rgba(255, 159, 64, 0.8)',   // Orange
+      'rgba(153, 102, 255, 0.8)', // Purple
+      'rgba(255, 205, 86, 0.8)',  // Yellow
+    ];
+
+    // Prepare datasets with colors
+    const datasets = data.datasets.map((dataset, index) => ({
+      label: dataset.label,
+      data: dataset.data,
+      backgroundColor: colors[index % colors.length],
+      borderColor: colors[index % colors.length].replace('0.8', '1'),
+      borderWidth: 2
+    }));
+
+    charts.quarterly = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: data.labels,
+        datasets: datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top'
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return `${context.dataset.label}: ${data.currency_symbol} ${context.parsed.y.toLocaleString()}`;
+              }
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function(value) {
+                return data.currency_symbol + ' ' + value.toLocaleString();
+              }
+            },
+            title: {
+              display: true,
+              text: 'Sales Amount'
+            }
+          },
+          x: {
+            title: {
+              display: true,
+              text: 'Quarter'
+            }
+          }
+        },
+        interaction: {
+          intersect: false,
+          mode: 'index'
+        }
+      }
+    });
+  } catch (err) {
+    console.error('loadQuarterlySalesData error', err);
+    const ctx = document.getElementById('quarterlySalesChart').getContext('2d');
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#666';
+    ctx.textAlign = 'center';
+    ctx.fillText('Error loading quarterly sales data', ctx.canvas.width / 2, ctx.canvas.height / 2);
+  }
+}
+
+async function loadTableData() {
+  const tbody = document.getElementById('salesTableBody');
+  try {
+    const res = await fetchWithTimeout("{% url 'sales_table_data_api' %}" + dateQuery(), { timeout: 15000 });
+    if (!res.ok) throw new Error('sales_table_data_api ' + res.status);
+    const rows = await res.json();
+
+    if (!rows || rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No sales found for selection</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${escapeHtml(r.date)}</td>
+        <td>${escapeHtml(r.product)}</td>
+        <td>${escapeHtml(r.category)}</td>
+        <td class="text-end">${Number(r.quantity).toLocaleString()}</td>
+        <td class="text-end">UGx. ${Number(r.unit_price || 0).toLocaleString()}</td>
+        <td class="text-end">UGx. ${Number(r.total || 0).toLocaleString()}</td>
+        <td>${escapeHtml(r.customer)}</td>
+      </tr>`).join('');
+  } catch (err) {
+    console.error('loadTableData error', err);
+    tbody.innerHTML = '<tr><td colspan="7" class="text-danger text-center">Error loading table data</td></tr>';
+  }
+}
+
+/* Yearly Chart Event Listeners */
+document.getElementById('yearRangeSelect').addEventListener('change', function() {
+  loadYearlySalesData(parseInt(this.value));
+});
+
+document.getElementById('refreshYearlyChart').addEventListener('click', function() {
+  const years = parseInt(document.getElementById('yearRangeSelect').value);
+  loadYearlySalesData(years);
+});
+
+/* Quarterly Chart Event Listeners */
+document.getElementById('quarterYearRangeSelect').addEventListener('change', function() {
+  loadQuarterlySalesData(parseInt(this.value));
+});
+
+document.getElementById('refreshQuarterlyChart').addEventListener('click', function() {
+  const years = parseInt(document.getElementById('quarterYearRangeSelect').value);
+  loadQuarterlySalesData(years);
+});
+
+/* -------------------------
+   Orchestration & events
+   ------------------------- */
+
+async function loadAllReports() {
+  const promises = [
+    updateKPIs(),
+    loadCategoryData(),
+    loadDistributionData(),
+    loadTableData(),
+    loadYearlySalesData(5), // Load with default 5 years
+    loadQuarterlySalesData(5) // Load quarterly with default 5 years
+  ];
+
+  try {
+    await Promise.allSettled(promises);
+  } finally {
+    // Cleanup if needed
+  }
+}
+
+function initializeDateInputs() {
+   const today = new Date();
+   const to = today.toISOString().split('T')[0];
+   const from = new Date(today.getTime() - 365*24*60*60*1000).toISOString().split('T')[0];
+   
+   document.getElementById('fromDate').value = from;
+   document.getElementById('toDate').value = to;
+
+   updateDateInputs();
+}
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', function() {
+  initializeDateInputs();
+
+  document.getElementById('btnGenerate').addEventListener('click', function(){ 
+    loadAllReports(); 
+  });
+
+  document.getElementById('dateRange').addEventListener('change', function() {
+    updateDateInputs();
+    loadAllReports();
+  });
+
+  document.getElementById('fromDate').addEventListener('change', function() {
+    if (document.getElementById('dateRange').value === 'custom') {
+      loadAllReports();
+    }
+  });
+  
+  document.getElementById('toDate').addEventListener('change', function() {
+    if (document.getElementById('dateRange').value === 'custom') {
+      loadAllReports();
+    }
+  });
+  
+
+  loadAllReports();
+});
+
+function refreshData(){ loadAllReports(); }
+function printReports(){ window.print(); }
+function printTable(){ window.print(); }
+
+/* -------------------------
+   Tax Reporting Functions
+   ------------------------- */
+
+let taxChartByPayment = null;
+let taxBreakdownChart = null;
+
+   
+  /* -------------------------
+    MAIN LOAD FUNCTION
+    ------------------------- */
+  document.getElementById('btnLoadTaxes').addEventListener('click', loadTaxReport);
+  
+  async function loadTaxReport() {
+    try {
+      const url = "http://127.0.0.1:8000/api/reports/taxes/";
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Failed to load tax report');
+  
+      const data = await res.json();
+      console.log("✅ Tax API Data:", data);
+  
+      // ---------------------
+      // Update KPI Cards
+      // ---------------------
+      const totalTax = Number(data.total_tax || 0);
+      const saleCount = Number(data.count_of_sales || 0);
+      const avgTax = saleCount > 0 ? totalTax / saleCount : 0;
+  
+      document.getElementById('totalTaxAmount').textContent =
+        'UGx. ' + totalTax.toLocaleString(undefined, { minimumFractionDigits: 0 });
+      document.getElementById('taxSalesCount').textContent =
+        saleCount.toLocaleString();
+      document.getElementById('avgTaxPerSale').textContent =
+        'UGx. ' + avgTax.toLocaleString(undefined, { minimumFractionDigits: 0 });
+  
+      // ---------------------
+      // Update Table
+      // ---------------------
+      const tbody = document.getElementById('taxTableBody');
+      tbody.innerHTML = `
+        <tr>
+          <td><strong>All Payments</strong></td>
+          <td class="text-end"><strong>UGx. ${totalTax.toLocaleString()}</strong></td>
+          <td class="text-end"><strong>${saleCount.toLocaleString()}</strong></td>
+          <td class="text-end"><strong>UGx. ${avgTax.toLocaleString()}</strong></td>
+        </tr>
+      `;
+  
+      // ---------------------
+      // Render Charts
+      // ---------------------
+      const chartData = [{
+        payment_method: 'All Sales',
+        total_tax: totalTax,
+        count_of_sales: saleCount,
+      }];
+      updateTaxCharts(chartData, totalTax);
+  
+    } catch (err) {
+      console.error('❌ loadTaxReport error:', err);
+      alert('Error loading tax report: ' + err.message);
+      document.getElementById('taxTableBody').innerHTML =
+        '<tr><td colspan="4" class="text-danger text-center">Error loading tax data.</td></tr>';
+      clearTaxCharts();
+    }
+  }
+  
+  /* -------------------------
+    CHART UPDATES
+    ------------------------- */
+  function updateTaxCharts(groups, totalTax) {
+    const labels = groups.map(g => g.payment_method);
+    const taxValues = groups.map(g => g.total_tax);
+  
+    // Destroy old charts before re-rendering
+    if (taxChartByPayment) taxChartByPayment.destroy();
+    if (taxBreakdownChart) taxBreakdownChart.destroy();
+  
+    // ---- Bar Chart: Tax by Payment Method ----
+    const ctxBar = document.getElementById('taxByPaymentChart').getContext('2d');
+    taxChartByPayment = new Chart(ctxBar, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Tax by Payment Method',
+          data: taxValues,
+          backgroundColor: [
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 99, 132, 0.8)',
+            'rgba(75, 192, 192, 0.8)',
+            'rgba(255, 159, 64, 0.8)',
+          ],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => 'UGx. ' + ctx.parsed.y.toLocaleString()
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: 'Tax Amount (UGx)' },
+            ticks: {
+              callback: v => 'UGx. ' + v.toLocaleString()
+            }
+          },
+          x: { title: { display: true, text: 'Payment Method' } }
+        }
+      }
+    });
+  
+    // ---- Doughnut Chart: Tax Breakdown ----
+    const ctxPie = document.getElementById('taxBreakdownChart').getContext('2d');
+    taxBreakdownChart = new Chart(ctxPie, {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data: taxValues,
+          backgroundColor: [
+            'rgba(255, 205, 86, 0.8)',
+            'rgba(153, 102, 255, 0.8)',
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 99, 132, 0.8)',
+          ]
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const label = ctx.label || '';
+                const value = ctx.parsed || 0;
+                const percentage = totalTax > 0 ? ((value / totalTax) * 100).toFixed(1) : 0;
+                return `${label}: UGx. ${value.toLocaleString()} (${percentage}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+  
+  /* -------------------------
+    CLEAR CHARTS (if needed)
+    ------------------------- */
+  function clearTaxCharts() {
+    if (taxChartByPayment) {
+      taxChartByPayment.destroy();
+      taxChartByPayment = null;
+    }
+    if (taxBreakdownChart) {
+      taxBreakdownChart.destroy();
+      taxBreakdownChart = null;
+    }
+  }
+
+  async function loadTaxReport(groupByPayment = false) {
+try {
+  const url = `http://127.0.0.1:8000/api/reports/taxes/${groupByPayment ? '?group_by_payment=true' : ''}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to load tax report');
+
+  const data = await res.json();
+  console.log("✅ Tax API Data:", data);
+
+  // ---------------------
+  // Update KPI Cards
+  // ---------------------
+  const totalTax = Number(data.total_tax || 0);
+  const saleCount = Number(data.count_of_sales || 0);
+  const avgTax = saleCount > 0 ? totalTax / saleCount : 0;
+
+  document.getElementById('totalTaxAmount').textContent = 'UGx. ' + totalTax.toLocaleString();
+  document.getElementById('taxSalesCount').textContent = saleCount.toLocaleString();
+  document.getElementById('avgTaxPerSale').textContent = 'UGx. ' + avgTax.toLocaleString();
+
+  // ---------------------
+  // Update Table
+  // ---------------------
+  const tbody = document.getElementById('taxTableBody');
+  tbody.innerHTML = '';
+
+  const rows = groupByPayment && data.payment_groups?.length
+    ? data.payment_groups
+    : [{ payment_method: 'All Payments', total_tax: totalTax, count_of_sales: saleCount }];
+
+  rows.forEach(group => {
+    const avg = group.count_of_sales ? group.total_tax / group.count_of_sales : 0;
+    tbody.innerHTML += `
+      <tr>
+        <td><strong>${group.payment_method}</strong></td>
+        <td class="text-end"><strong>UGx. ${group.total_tax.toLocaleString()}</strong></td>
+        <td class="text-end"><strong>${group.count_of_sales.toLocaleString()}</strong></td>
+        <td class="text-end"><strong>UGx. ${avg.toLocaleString()}</strong></td>
+      </tr>
+    `;
+  });
+
+  // ---------------------
+  // Render Charts
+  // ---------------------
+  const chartData = rows;
+  updateTaxCharts(chartData, totalTax);
+
+} catch (err) {
+  console.error('❌ loadTaxReport error:', err);
+  alert('Error loading tax report: ' + err.message);
+  document.getElementById('taxTableBody').innerHTML =
+    '<tr><td colspan="4" class="text-danger text-center">Error loading tax data.</td></tr>';
+  clearTaxCharts();
+}
+}
+
+   
+   
+   
+
+</script>
+
+<style>
+.card { border-radius: .4rem; }
+.table th, .table td { vertical-align: middle; }
+#salesTable tbody td { white-space: nowrap; }
+#yearlySalesChart {
+  min-height: 300px;
+}
+#quarterlySalesChart {
+  min-height: 300px;
+}
+</style>
+
+{% endblock %}

@@ -1,0 +1,150 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Purchase Orders - Supermarket DBMS{% endblock %}
+{% block content %}
+<div class="container py-4">
+
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h2 class="fw-bold">Purchase Orders</h2>
+      <p class="text-muted">Manage and track all purchase orders</p>
+    </div>
+    <div>
+      <a href="{% url 'create_purchase_order' %}" class="btn btn-success">New Order</a>
+      <button type="button" class="btn btn-outline-secondary" id="exportBtn">Export</button>
+      <button type="button" class="btn btn-outline-primary" id="analyticsToggle">Analytics</button>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- Filters -->
+  <div class="card p-3 mb-4">
+    <h6 class="fw-bold mb-3">Search & Filters</h6>
+    <div class="row g-3">
+      <div class="col-md-3">
+        <label class="form-label">Search</label>
+        <input type="text" id="searchInput" class="form-control" placeholder="Supplier, invoice, status...">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Status</label>
+        <select id="statusFilter" class="form-select">
+          <option value="">All Status</option>
+          <option value="Pending">Pending</option>
+          <option value="Delivered">Delivered</option>
+          <option value="Cancelled">Cancelled</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">From Date</label>
+        <input type="date" id="fromDateFilter" class="form-control">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">To Date</label>
+        <input type="date" id="toDateFilter" class="form-control">
+      </div>
+      <div class="col-md-3 d-flex align-items-end">
+        <button class="btn btn-outline-dark w-100" id="clearFilters">Clear Filters</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Analytics Panel -->
+  <div id="analyticsPanel" class="my-4" style="display:none;">
+    <h6 class="fw-bold">Purchase Order Analytics</h6>
+    <div class="row">
+      <div class="col-md-6">
+        <canvas id="statusChart" height="150"></canvas>
+      </div>
+      <div class="col-md-6">
+        <canvas id="monthlyChart" height="150"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- Table -->
+  <div class="table-responsive">
+    <table class="table table-striped align-middle" id="purchaseOrderTable">
+      <thead class="table-light">
+        <tr>
+          <th><input type="checkbox" id="selectAll"></th>
+          <th>Order ID</th>
+          <th>Supplier</th>
+          <th>Order Date</th>
+          <th>Expected Delivery</th>
+          <th>Status</th>
+          <th>Total Cost</th>
+          <th>Invoice No.</th>
+          <th>Staff</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        {% for order in orders %}
+        <tr data-order-id="{{ order.id }}">
+          <td><input type="checkbox" class="order-checkbox" value="{{ order.id }}"></td>
+          <td><strong>#{{ order.id }}</strong></td>
+          <td>
+            <strong>{{ order.supplier.supplier_name }}</strong><br>
+            <small>{{ order.supplier.contact_number|default:"No contact" }}</small>
+          </td>
+          <td>{{ order.order_date|date:"M d, Y" }}</td>
+          <td>{{ order.expected_delivery_date|date:"M d, Y"|default:"Not set" }}</td>
+          <td><span class="badge bg-{{ order.status|lower }}">{{ order.status }}</span></td>
+          <td><strong>UGX {{ order.total_cost|floatformat:0 }}</strong></td>
+          <td>{{ order.invoice_no|default:"—" }}</td>
+          <td>{{ order.staff.first_name }} {{ order.staff.last_name }}</td>
+          <td>
+            <a href="#" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#viewOrderModal{{ order.id }}">View</a>
+            <a href="#" class="btn btn-sm btn-outline-warning">Edit</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="10" class="text-center py-4">No Purchase Orders Found</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Modals -->
+  {% for order in orders %}
+  <div class="modal fade" id="viewOrderModal{{ order.id }}" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Purchase Order #{{ order.id }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <h6>Order Details</h6>
+          <table class="table">
+            <tr><td>Supplier:</td><td>{{ order.supplier.supplier_name }}</td></tr>
+            <tr><td>Order Date:</td><td>{{ order.order_date|date:"M d, Y" }}</td></tr>
+            <tr><td>Expected Delivery:</td><td>{{ order.expected_delivery_date|date:"M d, Y"|default:"Not set" }}</td></tr>
+            <tr><td>Status:</td><td>{{ order.status }}</td></tr>
+            <tr><td>Total Cost:</td><td>UGX {{ order.total_cost|floatformat:0 }}</td></tr>
+          </table>
+          <hr>
+          <h6>Supplier Info</h6>
+          <p>{{ order.supplier.supplier_name }}<br>
+             {{ order.supplier.contact_number|default:"N/A" }}<br>
+             {{ order.supplier.email|default:"N/A" }}<br>
+             {{ order.supplier.address|default:"N/A" }}
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+document.getElementById("analyticsToggle").addEventListener("click", () => {
+  const panel = document.getElementById("analyticsPanel");
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+});
+</script>
+
+{% endblock %}

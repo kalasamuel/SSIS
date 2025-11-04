@@ -1,0 +1,426 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Discount Management - Supermarket DBMS{% endblock %}
+{% block content %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2>Discount Management</h2>
+    <p class="text-muted mb-0">Manage discount schemes and promotional offers</p>
+  </div>
+  <div class="btn-group">
+    <a href="{% url 'create_discount' %}" class="btn btn-primary">
+      <i class="fas fa-plus me-2"></i>Add Discount Scheme
+    </a>
+    <button class="btn btn-outline-secondary" onclick="printDiscounts()">
+      <i class="fas fa-print me-2"></i>Print
+    </button>
+  </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="row mb-4">
+  <div class="col-md-3 mb-3">
+    <div class="card bg-primary text-white">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h6 class="card-title">Total Schemes</h6>
+            <h4 class="mb-0">{{ discounts|length }}</h4>
+          </div>
+          <div class="align-self-center">
+            <i class="fas fa-tags fa-2x"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 mb-3">
+    <div class="card bg-success text-white">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h6 class="card-title">Active Schemes</h6>
+            <h4 class="mb-0" id="activeDiscounts">0</h4>
+          </div>
+          <div class="align-self-center">
+            <i class="fas fa-check-circle fa-2x"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 mb-3">
+    <div class="card bg-warning text-white">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h6 class="card-title">Expiring Soon</h6>
+            <h4 class="mb-0" id="expiringDiscounts">0</h4>
+          </div>
+          <div class="align-self-center">
+            <i class="fas fa-clock fa-2x"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 mb-3">
+    <div class="card bg-info text-white">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h6 class="card-title">Percentage Discounts</h6>
+            <h4 class="mb-0" id="percentageDiscounts">0</h4>
+          </div>
+          <div class="align-self-center">
+            <i class="fas fa-percentage fa-2x"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Discount Schemes Table -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">Discount Schemes</h5>
+    <div class="btn-group btn-group-sm">
+      <button class="btn btn-outline-primary" onclick="exportDiscounts('csv')">
+        <i class="fas fa-file-csv me-1"></i>Export CSV
+      </button>
+      <button class="btn btn-outline-secondary" onclick="exportDiscounts('pdf')">
+        <i class="fas fa-file-pdf me-1"></i>Export PDF
+      </button>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    {% if discounts %}
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="discountTable">
+        <thead class="table-light">
+          <tr>
+            <th>Discount Name</th>
+            <th>Type</th>
+            <th>Value</th>
+            <th>Start Date</th>
+            <th>End Date</th>
+            <th>Status</th>
+            <th>Validity</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for discount in discounts %}
+          <tr>
+            <td>
+              <div class="d-flex align-items-center">
+                <div class="avatar-sm bg-{% if discount.is_active %}success{% else %}secondary{% endif %} rounded-circle d-flex align-items-center justify-content-center me-2">
+                  <i class="fas fa-tag text-white"></i>
+                </div>
+                <div>
+                  <h6 class="mb-0">{{ discount.discount_name }}</h6>
+                  <small class="text-muted">ID: {{ discount.id }}</small>
+                </div>
+              </div>
+            </td>
+            <td>
+              <span class="badge bg-{% if discount.discount_type == 'Percentage' %}primary{% elif discount.discount_type == 'Fixed' %}info{% else %}warning{% endif %}">
+                {{ discount.discount_type }}
+              </span>
+            </td>
+            <td class="text-end">
+              {% if discount.discount_type == 'Percentage' %}
+                {{ discount.value }}%
+              {% else %}
+                UGx. {{ discount.value|floatformat:0 }}
+              {% endif %}
+            </td>
+            <td>{{ discount.start_date|date:"M d, Y" }}</td>
+            <td>{{ discount.end_date|date:"M d, Y" }}</td>
+            <td>
+              <span class="badge bg-{% if discount.is_active %}success{% else %}danger{% endif %}">
+                {% if discount.is_active %}Active{% else %}Inactive{% endif %}
+              </span>
+            </td>
+            <td>
+              {% now "Y-m-d" as today %}
+              {% if today > discount.end_date|date:"Y-m-d" %}
+                <span class="text-danger">
+                  <i class="fas fa-times-circle me-1"></i>Expired
+                </span>
+              {% elif today < discount.start_date|date:"Y-m-d" %}
+                <span class="text-warning">
+                  <i class="fas fa-clock me-1"></i>Future
+                </span>
+              {% else %}
+                <span class="text-success">
+                  <i class="fas fa-check-circle me-1"></i>Valid
+                </span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-primary" onclick="editDiscount({{ discount.id }})" title="Edit">
+                  <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-outline-danger" onclick="deleteDiscount({{ discount.id }})" title="Delete">
+                  <i class="fas fa-trash"></i>
+                </button>
+                <button class="btn btn-outline-info" onclick="toggleDiscountStatus({{ discount.id }}, {{ discount.is_active|yesno:'false,true' }})" title="{% if discount.is_active %}Deactivate{% else %}Activate{% endif %}">
+                  <i class="fas fa-{% if discount.is_active %}pause{% else %}play{% endif %}"></i>
+                </button>
+                <button class="btn btn-outline-secondary" onclick="viewDiscountDetails({{ discount.id }})" title="View Details">
+                  <i class="fas fa-eye"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5">
+      <i class="fas fa-tags fa-3x text-muted mb-3"></i>
+      <h5 class="text-muted">No Discount Schemes Found</h5>
+      <p class="text-muted">Start by creating your first discount scheme to attract customers.</p>
+      <a href="{% url 'create_discount' %}" class="btn btn-primary">
+        <i class="fas fa-plus me-2"></i>Add Discount Scheme
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteModalLabel">Confirm Delete</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete this discount scheme? This action cannot be undone.</p>
+        <div class="alert alert-warning">
+          <i class="fas fa-exclamation-triangle me-2"></i>
+          <strong>Warning:</strong> This will permanently remove the discount scheme from the system.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Delete Scheme</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Discount Details Modal -->
+<div class="modal fade" id="detailsModal" tabindex="-1" aria-labelledby="detailsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="detailsModalLabel">Discount Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="detailsModalBody">
+        <!-- Content will be loaded dynamically -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Font Awesome for icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+<script>
+// Global variables
+let deleteDiscountId = null;
+
+// Calculate and display summary statistics
+function calculateSummary() {
+  const rows = document.querySelectorAll('#discountTable tbody tr');
+  let activeCount = 0;
+  let expiringCount = 0;
+  let percentageCount = 0;
+  
+  const today = new Date();
+  const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  rows.forEach(row => {
+    const statusBadge = row.querySelector('.badge');
+    const typeBadge = row.cells[1].querySelector('.badge');
+    const endDateText = row.cells[4].textContent;
+    
+    if (statusBadge && statusBadge.textContent.includes('Active')) {
+      activeCount++;
+    }
+    
+    if (typeBadge && typeBadge.textContent.includes('Percentage')) {
+      percentageCount++;
+    }
+    
+    // Check if expiring soon (within next 7 days)
+    const endDate = new Date(endDateText);
+    if (endDate <= nextWeek && endDate >= today) {
+      expiringCount++;
+    }
+  });
+
+  document.getElementById('activeDiscounts').textContent = activeCount;
+  document.getElementById('expiringDiscounts').textContent = expiringCount;
+  document.getElementById('percentageDiscounts').textContent = percentageCount;
+}
+
+// Edit discount function
+function editDiscount(discountId) {
+  window.location.href = '/discounts/edit/' + discountId + '/';
+}
+
+// Delete discount function
+function deleteDiscount(discountId) {
+  deleteDiscountId = discountId;
+  const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+  modal.show();
+}
+
+// Confirm delete
+document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+  if (deleteDiscountId) {
+    // Create and submit delete form
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/discounts/delete/' + deleteDiscountId + '/';
+    
+    // Add CSRF token
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]');
+    if (csrfToken) {
+      const csrfInput = document.createElement('input');
+      csrfInput.type = 'hidden';
+      csrfInput.name = 'csrfmiddlewaretoken';
+      csrfInput.value = csrfToken.value;
+      form.appendChild(csrfInput);
+    }
+    
+    document.body.appendChild(form);
+    form.submit();
+  }
+});
+
+// Toggle discount status
+function toggleDiscountStatus(discountId, currentStatus) {
+  fetch('/discounts/toggle/' + discountId + '/', {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      is_active: currentStatus
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      location.reload(); // Reload page to update status
+    } else {
+      alert('Error updating discount status');
+    }
+  })
+  .catch(error => {
+    console.error('Error:', error);
+    alert('Error updating discount status');
+  });
+}
+
+// View discount details
+function viewDiscountDetails(discountId) {
+  fetch('/discounts/details/' + discountId + '/')
+    .then(response => response.json())
+    .then(data => {
+      const modalBody = document.getElementById('detailsModalBody');
+      modalBody.innerHTML = 
+        '<div class="row">' +
+          '<div class="col-md-6">' +
+            '<h6>Discount Information</h6>' +
+            '<p><strong>Name:</strong> ' + data.discount_name + '</p>' +
+            '<p><strong>Type:</strong> ' + data.discount_type + '</p>' +
+            '<p><strong>Value:</strong> ' + (data.discount_type === 'Percentage' ? data.value + '%' : 'UGx. ' + parseFloat(data.value).toLocaleString()) + '</p>' +
+          '</div>' +
+          '<div class="col-md-6">' +
+            '<h6>Validity Period</h6>' +
+            '<p><strong>Start Date:</strong> ' + data.start_date + '</p>' +
+            '<p><strong>End Date:</strong> ' + data.end_date + '</p>' +
+            '<p><strong>Status:</strong> <span class="badge bg-' + (data.is_active ? 'success' : 'danger') + '">' + (data.is_active ? 'Active' : 'Inactive') + '</span></p>' +
+          '</div>' +
+        '</div>' +
+        '<hr>' +
+        '<div class="row">' +
+          '<div class="col-md-12">' +
+            '<h6>Usage Statistics</h6>' +
+            '<div class="alert alert-info">' +
+              '<i class="fas fa-info-circle me-2"></i>' +
+              '<strong>Auto-Applied:</strong> This discount is automatically applied to eligible sales transactions.' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      
+      const modal = new bootstrap.Modal(document.getElementById('detailsModal'));
+      modal.show();
+    })
+    .catch(error => {
+      console.error('Error fetching discount details:', error);
+      alert('Error loading discount details');
+    });
+}
+
+// Export functions
+function exportDiscounts(format) {
+  const url = '/discounts/export/?format=' + format;
+  window.open(url, '_blank');
+}
+
+// Print function
+function printDiscounts() {
+  window.print();
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+  calculateSummary();
+});
+</script>
+
+<style>
+.avatar-sm {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
+
+@media print {
+  .btn, .modal, .card-header .btn-group {
+    display: none !important;
+  }
+  
+  .card {
+    border: none !important;
+    box-shadow: none !important;
+  }
+}
+
+.table th {
+  border-top: none;
+}
+
+.badge {
+  font-size: 0.75em;
+}
+</style>
+
+{% endblock %}

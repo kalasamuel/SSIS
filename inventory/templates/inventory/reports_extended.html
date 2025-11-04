@@ -1,0 +1,28 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Extended Reports{% endblock %}
+{% block content %}
+<h2>Detailed Reports</h2>
+<div class="row">
+<div class="col-md-12">
+<div class="card p-3 mb-3">
+<h5>Quarterly Sales Report</h5>
+<canvas id="quarterChart"></canvas>
+</div>
+</div>
+<div class="col-md-6">
+<div class="card p-3 mb-3">
+<h5>Sales Distribution (Histogram)</h5>
+<canvas id="histChart"></canvas>
+</div>
+</div>
+</div>
+<script>
+async function drawMore(){
+const q = await fetch('/api/sales_by_quarter/').then(r=>r.json());
+const h = await fetch('/api/sales_histogram/').then(r=>r.json());
+new Chart(document.getElementById('quarterChart'),{type:'bar',data:{labels:q.labels,datasets:[{label:'Quarterly Sales',data:q.data}]} });
+new Chart(document.getElementById('histChart'),{type:'bar',data:{labels:h.labels,datasets:[{label:'Sales Frequency',data:h.data}]} });
+}
+drawMore();
+</script>
+{% endblock %}

@@ -1,0 +1,99 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Customers{% endblock %}
+{% block content %}
+<h2>Customers</h2>
+<a class="btn btn-success mb-2" href="{% url 'create_customer' %}">Add Customer</a>
+<div class="d-flex gap-2 mb-3">
+<input id="customerSearch" class="form-control" type="text" placeholder="Search customers... (name, phone, email)">
+<select id="emailDomainFilter" class="form-select" style="max-width:220px">
+<option value="">All email domains</option>
+</select>
+</div>
+<table class="table table-striped" id="customersTable">
+<thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Actions</th></tr></thead>
+<tbody>
+{% for c in customers %}
+<tr>
+<td>{{ c.first_name }} {{ c.last_name }}</td>
+<td>{{ c.phone }}</td>
+<td>{{ c.email }}</td>
+<td>
+<a class="btn btn-sm btn-primary" href="{% url 'edit_customer' c.pk %}">Edit</a>
+</td>
+</tr>
+{% empty %}
+<tr><td colspan="4">No customers found.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+<script>
+(function() {
+const table = document.getElementById('customersTable');
+if (!table) return;
+const tbody = table.querySelector('tbody');
+const rows = Array.from(tbody.querySelectorAll('tr'));
+const searchInput = document.getElementById('customerSearch');
+const domainSelect = document.getElementById('emailDomainFilter');
+
+// Build domain options from existing rows (3rd column)
+const domainSet = new Set();
+rows.forEach(r => {
+  const cells = r.querySelectorAll('td');
+  if (cells.length >= 3) {
+    const email = (cells[2].textContent || '').trim();
+    const atIdx = email.indexOf('@');
+    if (atIdx > -1 && cells.length === 4) {
+      const domain = email.slice(atIdx + 1).toLowerCase();
+      if (domain) domainSet.add(domain);
+    }
+  }
+});
+Array.from(domainSet).sort((a,b) => a.localeCompare(b)).forEach(dm => {
+  const opt = document.createElement('option');
+  opt.value = dm;
+  opt.textContent = dm;
+  domainSelect.appendChild(opt);
+});
+
+// Client-side empty state row
+let emptyRow = document.createElement('tr');
+emptyRow.setAttribute('data-empty', 'true');
+let td = document.createElement('td');
+td.colSpan = 4;
+td.textContent = 'No matching customers.';
+emptyRow.appendChild(td);
+emptyRow.style.display = 'none';
+tbody.appendChild(emptyRow);
+
+function normalize(s){
+  return (s || '').toString().toLowerCase();
+}
+
+function applyFilter() {
+  const q = normalize(searchInput.value);
+  const selectedDomain = domainSelect.value;
+  let visibleCount = 0;
+  rows.forEach(r => {
+    const cells = r.querySelectorAll('td');
+    if (cells.length !== 4) { r.style.display = 'none'; return; }
+    const nameText = normalize(cells[0].textContent);
+    const phoneText = normalize(cells[1].textContent);
+    const emailText = (cells[2].textContent || '').trim();
+    const emailNorm = normalize(emailText);
+    const atIdx = emailText.indexOf('@');
+    const domain = atIdx > -1 ? emailText.slice(atIdx + 1).toLowerCase() : '';
+    const rowText = normalize(r.textContent);
+    const matchesSearch = q === '' || rowText.includes(q);
+    const matchesDomain = !selectedDomain || domain === selectedDomain;
+    const show = matchesSearch && matchesDomain;
+    r.style.display = show ? '' : 'none';
+    if (show) visibleCount++;
+  });
+  emptyRow.style.display = visibleCount === 0 ? '' : 'none';
+}
+
+searchInput.addEventListener('input', applyFilter);
+domainSelect.addEventListener('change', applyFilter);
+})();
+</script>
+{% endblock %}

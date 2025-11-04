@@ -1,0 +1,99 @@
+{% extends 'inventory/base.html' %}
+{% load static %}
+
+{% block title %}Create Sale - Supermarket DBMS{% endblock %}
+
+{% block content %}
+<style>
+  /* Minor style tweaks from reports.html */
+  .card { border-radius: .4rem; }
+  .table th, .table td { vertical-align: middle; }
+  #lineItemsTable tbody td { white-space: nowrap; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h2>Create New Sale</h2>
+    <p class="text-muted mb-0">Record a new transaction</p>
+  </div>
+  <div class="btn-group">
+    <a href="{% url 'reports' %}" class="btn btn-outline-info">View Reports</a>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post">{% csrf_token %}
+      
+      <h4>Sale Details</h4>
+      <div class="row g-3 mb-4">
+        {# Iterate over main form fields and apply Bootstrap layout #}
+        {% for field in form %}
+          <div class="col-md-4">
+            <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <div class="form-text">{{ field.help_text }}</div>
+            {% endif %}
+            {% for error in field.errors %}
+              <div class="text-danger small">{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+
+      <h4 class="mb-3 mt-4">Line Items</h4>
+      {{ formset.management_form }}
+      
+      <div class="table-responsive">
+        <table class="table table-hover" id="lineItemsTable">
+          <thead class="table-light">
+            <tr>
+              <th>Product</th>
+              <th>Quantity</th>
+              <th>Unit Price</th>
+              <th>Discount</th>
+              <th>Batch No.</th>
+              <th class="text-center">Delete</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in formset %}
+              <tr>
+                <td>{{ f.product }}</td>
+                <td>{{ f.quantity_sold }}</td>
+                <td>
+                  {# Display price field as control, then a display value (if needed) #}
+                  <div class="input-group">
+                    <span class="input-group-text">UGx.</span>
+                    {{ f.unit_price }}
+                  </div>
+                  {% if f.unit_price.errors %}
+                    <div class="text-danger small">{{ f.unit_price.errors }}</div>
+                  {% endif %}
+                </td>
+                <td>{{ f.discount_value }}</td>
+                <td>{{ f.batch_number }}</td>
+                <td class="text-center">{% if f.DELETE %}{{ f.DELETE }}{% endif %}</td>
+              </tr>
+            {% endfor %}
+            {# Add a row for adding new items - usually done via JS, but we maintain the structure #}
+            <tr>
+              <td colspan="6" class="text-center text-muted py-3">
+                <a href="#" class="btn btn-sm btn-outline-secondary disabled">Add New Item (JS needed)</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="d-flex justify-content-end mt-4">
+        <button class="btn btn-primary" type="submit">
+          <i class="bi bi-save"></i> Save Sale
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

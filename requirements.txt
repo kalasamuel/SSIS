@@ -1,0 +1,30 @@
+# Django Framework
+Django
+
+# MySQL Database Connector (choose one)
+mysqlclient
+# OR if mysqlclient fails to install on Windows:
+# PyMySQL==1.1.1
+
+# Environment and Configuration
+python-decouple
+dj-database-url
+
+# Charting / Graphs (for reports)
+plotly
+django-plotly-dash
+
+# REST API (optional, in case you want to expose endpoints)
+djangorestframework
+# Utilities and Debugging
+django-extensions
+django-cors-headers
+pytz
+sqlparse
+tzdata
+
+# Data Visualization in Python (optional, for reports)
+matplotlib
+pandas
+# Security & Environment
+gunicorn

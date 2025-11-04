@@ -1,0 +1,328 @@
+{% extends 'inventory/base.html' %}
+{% block title %}Payroll Management - Supermarket DBMS{% endblock %}
+{% block content %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2>Payroll Management</h2>
+    <p class="text-muted mb-0">Manage staff payroll records and calculations</p>
+  </div>
+  <div class="btn-group">
+    <a href="{% url 'create_payroll' %}" class="btn btn-primary">
+      <i class="fas fa-plus me-2"></i>Add Payroll Record
+    </a>
+    <button class="btn btn-outline-secondary" onclick="printPayroll()">
+      <i class="fas fa-print me-2"></i>Print
+    </button>
+  </div>
+</div>
+
+
+<!-- Payroll Records Table -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">Payroll Records</h5>
+    <div class="btn-group btn-group-sm">
+      <button class="btn btn-outline-primary" onclick="exportPayroll('csv')">
+        <i class="fas fa-file-csv me-1"></i>Export CSV
+      </button>
+      <button class="btn btn-outline-secondary" onclick="exportPayroll('pdf')">
+        <i class="fas fa-file-pdf me-1"></i>Export PDF
+      </button>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    {% if payrolls %}
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="payrollTable">
+        <thead class="table-light">
+          <tr>
+            <th>Staff Member</th>
+            <th>Payment Date</th>
+            <th>Basic Salary</th>
+            <th>Allowances</th>
+            <th>Deductions</th>
+            <th>Net Salary</th>
+            <th>Payment Method</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for payroll in payrolls %}
+          <tr>
+            <td>
+              <div class="d-flex align-items-center">
+                <div class="avatar-sm bg-primary rounded-circle d-flex align-items-center justify-content-center me-2">
+                  <i class="fas fa-user text-white"></i>
+                </div>
+                <div>
+                  <h6 class="mb-0">{{ payroll.staff.first_name }} {{ payroll.staff.last_name }}</h6>
+                  <small class="text-muted">{{ payroll.staff.position }}</small>
+                </div>
+              </div>
+            </td>
+            <td>{{ payroll.payment_date|date:"M d, Y" }}</td>
+            <td class="text-end">UGx. {{ payroll.basic_salary|floatformat:0|default:"0" }}</td>
+            <td class="text-end text-success">UGx. {{ payroll.allowances|floatformat:0|default:"0" }}</td>
+            <td class="text-end text-danger">UGx. {{ payroll.deductions|floatformat:0|default:"0" }}</td>
+            <td class="text-end fw-bold text-primary">UGx. {{ payroll.net_salary|floatformat:0|default:"0" }}</td>
+            <td>
+              <span class="badge bg-secondary">{{ payroll.payment_method|title }}</span>
+            </td>
+            <td>
+              <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-primary" onclick="editPayroll({{ payroll.id }})" title="Edit">
+                  <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-outline-danger" onclick="deletePayroll({{ payroll.id }})" title="Delete">
+                  <i class="fas fa-trash"></i>
+                </button>
+                <button class="btn btn-outline-info" onclick="viewPayrollDetails({{ payroll.id }})" title="View Details">
+                  <i class="fas fa-eye"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="table-light">
+          <tr>
+            <th colspan="2">Totals:</th>
+            <th class="text-end" id="totalBasic">UGx. 0</th>
+            <th class="text-end" id="totalAllowances">UGx. 0</th>
+            <th class="text-end" id="totalDeductionsTable">UGx. 0</th>
+            <th class="text-end" id="totalNet">UGx. 0</th>
+            <th colspan="2"></th>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5">
+      <i class="fas fa-clipboard-list fa-3x text-muted mb-3"></i>
+      <h5 class="text-muted">No Payroll Records Found</h5>
+      <p class="text-muted">Start by adding your first payroll record.</p>
+      <a href="{% url 'create_payroll' %}" class="btn btn-primary">
+        <i class="fas fa-plus me-2"></i>Add Payroll Record
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteModalLabel">Confirm Delete</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete this payroll record? This action cannot be undone.</p>
+        <div class="alert alert-warning">
+          <i class="fas fa-exclamation-triangle me-2"></i>
+          <strong>Warning:</strong> This will permanently remove the payroll record from the system.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Delete Record</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Payroll Details Modal -->
+<div class="modal fade" id="detailsModal" tabindex="-1" aria-labelledby="detailsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="detailsModalLabel">Payroll Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="detailsModalBody">
+        <!-- Content will be loaded dynamically -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Font Awesome for icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+<script>
+// Global variables
+let deletePayrollId = null;
+
+// Calculate and display totals
+function calculateTotals() {
+  const rows = document.querySelectorAll('#payrollTable tbody tr');
+  let totalBasic = 0;
+  let totalAllowances = 0;
+  let totalDeductions = 0;
+  let totalNet = 0;
+
+  rows.forEach(row => {
+    const basic = parseFloat(row.cells[2].textContent.replace(/[^\d.-]/g, '')) || 0;
+    const allowances = parseFloat(row.cells[3].textContent.replace(/[^\d.-]/g, '')) || 0;
+    const deductions = parseFloat(row.cells[4].textContent.replace(/[^\d.-]/g, '')) || 0;
+    const net = parseFloat(row.cells[5].textContent.replace(/[^\d.-]/g, '')) || 0;
+
+    totalBasic += basic;
+    totalAllowances += allowances;
+    totalDeductions += deductions;
+    totalNet += net;
+  });
+
+  // Update summary cards
+  document.getElementById('totalPaid').textContent = 'UGx. ' + totalNet.toLocaleString();
+  document.getElementById('totalDeductions').textContent = 'UGx. ' + totalDeductions.toLocaleString();
+  document.getElementById('avgSalary').textContent = rows.length > 0 ? 'UGx. ' + Math.round(totalNet / rows.length).toLocaleString() : 'UGx. 0';
+
+  // Update table totals
+  document.getElementById('totalBasic').textContent = 'UGx. ' + totalBasic.toLocaleString();
+  document.getElementById('totalAllowances').textContent = 'UGx. ' + totalAllowances.toLocaleString();
+  document.getElementById('totalDeductionsTable').textContent = 'UGx. ' + totalDeductions.toLocaleString();
+  document.getElementById('totalNet').textContent = 'UGx. ' + totalNet.toLocaleString();
+}
+
+// Edit payroll function
+function editPayroll(payrollId) {
+  window.location.href = `/payroll/edit/${payrollId}/`;
+}
+
+// Delete payroll function
+function deletePayroll(payrollId) {
+  deletePayrollId = payrollId;
+  const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+  modal.show();
+}
+
+// Confirm delete
+document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+  if (deletePayrollId) {
+    // Create and submit delete form
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = `/payroll/delete/${deletePayrollId}/`;
+    
+    // Add CSRF token
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]');
+    if (csrfToken) {
+      const csrfInput = document.createElement('input');
+      csrfInput.type = 'hidden';
+      csrfInput.name = 'csrfmiddlewaretoken';
+      csrfInput.value = csrfToken.value;
+      form.appendChild(csrfInput);
+    }
+    
+    document.body.appendChild(form);
+    form.submit();
+  }
+});
+
+// View payroll details
+function viewPayrollDetails(payrollId) {
+  // Fetch payroll details via AJAX
+  fetch(`/payroll/details/${payrollId}/`)
+    .then(response => response.json())
+    .then(data => {
+      const modalBody = document.getElementById('detailsModalBody');
+      modalBody.innerHTML = 
+        '<div class="row">' +
+          '<div class="col-md-6">' +
+            '<h6>Staff Information</h6>' +
+            '<p><strong>Name:</strong> ' + data.staff_name + '</p>' +
+            '<p><strong>Position:</strong> ' + data.staff_position + '</p>' +
+            '<p><strong>Department:</strong> ' + (data.staff_department || 'N/A') + '</p>' +
+          '</div>' +
+          '<div class="col-md-6">' +
+            '<h6>Payment Information</h6>' +
+            '<p><strong>Payment Date:</strong> ' + data.payment_date + '</p>' +
+            '<p><strong>Payment Method:</strong> ' + data.payment_method + '</p>' +
+          '</div>' +
+        '</div>' +
+        '<hr>' +
+        '<div class="row">' +
+          '<div class="col-md-12">' +
+            '<h6>Salary Breakdown</h6>' +
+            '<table class="table table-sm">' +
+              '<tr>' +
+                '<td>Basic Salary:</td>' +
+                '<td class="text-end">UGx. ' + parseFloat(data.basic_salary).toLocaleString() + '</td>' +
+              '</tr>' +
+              '<tr>' +
+                '<td>Allowances:</td>' +
+                '<td class="text-end text-success">+ UGx. ' + parseFloat(data.allowances || 0).toLocaleString() + '</td>' +
+              '</tr>' +
+              '<tr>' +
+                '<td>Deductions:</td>' +
+                '<td class="text-end text-danger">- UGx. ' + parseFloat(data.deductions || 0).toLocaleString() + '</td>' +
+              '</tr>' +
+              '<tr class="table-primary">' +
+                '<td><strong>Net Salary:</strong></td>' +
+                '<td class="text-end"><strong>UGx. ' + parseFloat(data.net_salary).toLocaleString() + '</strong></td>' +
+              '</tr>' +
+            '</table>' +
+          '</div>' +
+        '</div>';
+      
+      const modal = new bootstrap.Modal(document.getElementById('detailsModal'));
+      modal.show();
+    })
+    .catch(error => {
+      console.error('Error fetching payroll details:', error);
+      alert('Error loading payroll details');
+    });
+}
+
+// Export functions
+function exportPayroll(format) {
+  const url = `/payroll/export/?format=${format}`;
+  window.open(url, '_blank');
+}
+
+// Print function
+function printPayroll() {
+  window.print();
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+  calculateTotals();
+});
+</script>
+
+<style>
+.avatar-sm {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
+
+@media print {
+  .btn, .modal, .card-header .btn-group {
+    display: none !important;
+  }
+  
+  .card {
+    border: none !important;
+    box-shadow: none !important;
+  }
+}
+
+.table th {
+  border-top: none;
+}
+
+.table tfoot th {
+  border-top: 2px solid #dee2e6;
+}
+</style>
+
+{% endblock %}
